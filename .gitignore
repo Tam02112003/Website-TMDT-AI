@@ -175,7 +175,4 @@ history.json
 # PostgreSQL
 *.dump
 
-# PyCharm
-.idea/
-
 
