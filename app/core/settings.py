@@ -135,6 +135,12 @@ class LocalLLMSettings(BaseSettings):
     API_URL: str
     MODEL: str = "ai/gemma3n"
 
+class CloudinarySettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="CLOUDINARY_")
+    CLOUD_NAME: str
+    API_KEY: str
+    API_SECRET: SecretStr
+
 
 # Main Settings Class (adapted from docs/Settings.py)
 class Settings:
@@ -165,6 +171,7 @@ class Settings:
             self.SEPAY = SepaySettings()
             self.SMTP = SmtpSettings()
             self.LOCAL_LLM = LocalLLMSettings()
+            self.CLOUDINARY = CloudinarySettings()
 
             # Mark as initialized
             Settings._initialized = True

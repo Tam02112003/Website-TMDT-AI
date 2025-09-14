@@ -5,6 +5,7 @@ from core.pkgs.database import get_db
 import asyncpg
 from typing import List
 from services.CsvProcessingService import process_csv_and_save
+from services.RecommendationService import get_recommendations
 from core.app_config import logger
 from core.redis.redis_client import get_redis_client
 import json
@@ -140,6 +141,22 @@ async def create_comment_for_product(product_id: int, comment: schemas.CommentCr
 @router.get("/{product_id}/comments", response_model=List[schemas.Comment])
 async def read_product_comments(product_id: int, db: asyncpg.Connection = Depends(get_db)):
     return await product_crud.get_comments(db, product_id)
+
+@router.get("/{product_id}/recommendations", response_model=List[schemas.Product])
+async def get_product_recommendations(product_id: int, db: asyncpg.Connection = Depends(get_db)):
+    target_product = await product_crud.get_product(db, product_id=product_id)
+    if target_product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    all_products = await product_crud.get_all_products(db)
+    
+    recommended_products = get_recommendations(target_product, all_products)
+    
+    if not recommended_products:
+        # Optional: Return a default list of popular products or latest products if no specific recommendations are found
+        # For now, we return an empty list.
+        return []
+    return recommended_products
 
 @router.post("/upload")
 async def upload_products_from_csv(file: UploadFile = File(...), db: asyncpg.Connection = Depends(get_db)):

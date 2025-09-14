@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
-from core.enums import OrderStatus, PaymentMethod
+from core.utils.enums import OrderStatus, PaymentMethod
 
 class ProductBase(BaseModel):
     name: str
@@ -36,6 +36,7 @@ class LoginRequest(BaseModel):
 class NewsBase(BaseModel):
     title: str
     content: Optional[str] = None
+    image_url: Optional[str] = None
     is_active: Optional[bool] = True
 
 class NewsCreate(NewsBase):
@@ -132,6 +133,11 @@ class VNPayPaymentRequest(BaseModel):
     order_desc: str = "Thanh toan don hang"
     bank_code: Optional[str] = None # Optional bank code for direct payment
     language: str = "vn" # 'vn' for Vietnamese, 'en' for English
+
+class AINewsGenerateRequest(BaseModel):
+    topic: str
+    keywords: Optional[str] = None
+    length: str = "vừa phải" # e.g., "ngắn", "vừa phải", "dài"
 
 class ChatbotRequest(BaseModel):
     question: str

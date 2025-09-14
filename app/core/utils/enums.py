@@ -22,3 +22,6 @@ class RATE_LIMIT(int, Enum):
     # Rate Limiting Configuration
     RATE_LIMIT_WINDOW = 60  # seconds
     RATE_LIMIT_MAX_REQUESTS = 20  # requests per window
+
+class ModelPath(str, Enum):
+    MODEL_CACHE_PATH = "cache/personalized_rec_model.pkl"
