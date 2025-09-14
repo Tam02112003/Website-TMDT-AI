@@ -8,6 +8,8 @@ from crud.user import require_admin
 from core.redis.redis_client import get_redis_client
 from core.kafka.kafka_client import producer
 import json
+from services.NewsAIService import generate_news_content
+from schemas.schemas import AINewsGenerateRequest
 
 router = APIRouter(prefix="/news", tags=["news"])
 
@@ -59,3 +61,28 @@ async def restore_news(news_id: int, db: Session = Depends(database.get_db), use
     if not db_news:
         raise HTTPException(status_code=404, detail="News not found or cannot be restored")
     return db_news
+
+@router.post("/generate_ai", response_model=schemas.News)
+async def generate_ai_news(request_data: AINewsGenerateRequest, db: Session = Depends(database.get_db), user=Depends(require_admin)):
+    try:
+        generated_content = await generate_news_content(
+            topic=request_data.topic,
+            keywords=request_data.keywords,
+            length=request_data.length
+        )
+        
+        # Use a generic Cloudinary placeholder URL since AI doesn't generate images
+        generic_cloudinary_placeholder_url = "https://res.cloudinary.com/demo/image/upload/w_300,h_200,c_fill/sample.jpg"
+
+        news_create_data = schemas.NewsCreate(
+            title=generated_content["title"],
+            content=generated_content["content"],
+            image_url=generic_cloudinary_placeholder_url, 
+            is_active=True # AI generated news can be active by default or set to False for review
+        )
+        
+        created_news = await news.create_news(db, news_create_data)
+        producer.send('news', json.dumps({"action": "create_ai", "title": created_news.title, "user": user.get("username")}).encode())
+        return created_news
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate and save AI news: {e}")

@@ -1,12 +1,13 @@
 from kafka import KafkaProducer
 from core.settings import settings
+from core.app_config import logger # Import logger
 
 class KafkaProducerWrapper:
     _producer: KafkaProducer | None = None
 
     def _get_producer(self):
         if self._producer is None:
-            print("Initializing Kafka producer...")
+            logger.info("Initializing Kafka producer...") # Use logger.info
             # Build Kafka configuration
             kafka_config = {
                 'bootstrap_servers': settings.KAFKA.BOOTSTRAP_SERVERS
@@ -26,9 +27,9 @@ class KafkaProducerWrapper:
             
             try:
                 self._producer = KafkaProducer(**kafka_config)
-                print("Successfully connected to Kafka producer.")
+                logger.info("Successfully connected to Kafka producer.") # Use logger.info
             except Exception as e:
-                print(f"Failed to create Kafka producer: {e}")
+                logger.error(f"Failed to create Kafka producer: {e}", exc_info=True) # Use logger.error
                 # self._producer remains None, subsequent calls will retry
         return self._producer
 
@@ -47,7 +48,7 @@ producer = KafkaProducerWrapper()
 def close_kafka_producer():
     # Access the internal producer to close it
     if producer._producer:
-        print("Closing Kafka producer...")
+        logger.info("Closing Kafka producer...") # Use logger.info
         producer.flush()
         producer.close()
-        print("Kafka producer closed.")
+        logger.info("Kafka producer closed.") # Use logger.info
