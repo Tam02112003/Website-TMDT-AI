@@ -104,3 +104,10 @@ async def get_deleted_comments(db: asyncpg.Connection, skip: int = 0, limit: int
         id=row["id"], product_id=row["product_id"], content=row["content"], user_name=row["user_name"], created_at=row["created_at"]
     ) for row in rows]
 
+async def get_all_products(db: asyncpg.Connection) -> List[schemas.Product]:
+    rows = await db.fetch("SELECT id, name, description, price, quantity, image_url, is_active, created_at, updated_at FROM products WHERE is_active=TRUE ORDER BY id")
+    return [schemas.Product(
+        id=row["id"], name=row["name"], description=row["description"], price=row["price"], quantity=row["quantity"], image_url=row["image_url"], is_active=row["is_active"], created_at=row["created_at"], updated_at=row["updated_at"]
+    ) for row in rows]
+
+

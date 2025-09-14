@@ -3,7 +3,7 @@ import secrets
 import json
 from typing import List, Optional
 
-from core.enums import OrderStatus, PaymentMethod
+from core.utils.enums import OrderStatus, PaymentMethod
 from core.kafka.kafka_client import producer
 from schemas.schemas import OrderCreateRequest, OrderStatusUpdateRequest
 from core.email_sender import send_email
@@ -93,3 +93,18 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
             await send_email(user.get('email'), subject, message)
 
     return True
+
+async def get_all_purchase_history(db: asyncpg.Connection) -> List[dict]:
+    """
+    Fetches all user-product purchase pairs from successful orders.
+    Successful orders are those with status PAID, PROCESSING, or DELIVERED.
+    """
+    query = """
+        SELECT o.user_id, oi.product_id
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        WHERE o.status = ANY($1::text[])
+    """
+    successful_statuses = [OrderStatus.PAID.value, OrderStatus.PROCESSING.value, OrderStatus.DELIVERED.value]
+    rows = await db.fetch(query, successful_statuses)
+    return [dict(row) for row in rows]

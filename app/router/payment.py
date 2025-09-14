@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from schemas import schemas
 from crud import sepay as sepay_crud, payment as crud_payment
 from core.pkgs.database import get_db
@@ -6,7 +6,7 @@ import asyncpg
 from core.app_config import logger
 from core.pkgs.vnpay import vnpay_client
 from fastapi.responses import RedirectResponse, JSONResponse
-from core.enums import OrderStatus
+from core.utils.enums import OrderStatus
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
 

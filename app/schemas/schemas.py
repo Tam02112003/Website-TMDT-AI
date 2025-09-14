@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime
-from core.enums import OrderStatus, PaymentMethod
+from core.utils.enums import OrderStatus, PaymentMethod
 
 class ProductBase(BaseModel):
     name: str

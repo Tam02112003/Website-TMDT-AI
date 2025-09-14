@@ -12,7 +12,7 @@ from core.redis.redis_client import get_redis_client
 import asyncpg
 from core.kafka.kafka_client import producer
 import json
-from core.enums import RATE_LIMIT
+from core.utils.enums import RATE_LIMIT
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -72,6 +72,7 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
 
     payload = {
         "sub": email,
+        "id": db_user["id"],
         "username": db_user["username"],
         "is_admin": db_user["is_admin"],
         "exp": datetime.utcnow() + timedelta(hours=24)
@@ -122,6 +123,7 @@ async def login_local(data: LoginRequest, request: Request, db: asyncpg.Connecti
 
     payload = {
         "sub": data.email,
+        "id": user_row["id"],
         "username": user_row["username"],
         "is_admin": user_row["is_admin"],
         "exp": datetime.utcnow() + timedelta(hours=24)

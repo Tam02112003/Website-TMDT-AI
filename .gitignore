@@ -175,4 +175,5 @@ history.json
 # PostgreSQL
 *.dump
 
+cache/
 

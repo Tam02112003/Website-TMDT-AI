@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 import asyncpg
 import httpx
 import json
@@ -7,7 +7,7 @@ import re
 from core.settings import settings
 from schemas import schemas
 from redis.asyncio import Redis
-from core.enums import ChatbotSessionTime
+from core.utils.enums import ChatbotSessionTime
 from core.app_config import logger
 
 async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_client: Redis, session_id: Optional[str] = None) -> schemas.ChatbotResponse:
