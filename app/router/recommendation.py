@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from crud.user import get_current_user, require_admin
+from core.dependencies import log_activity
+from crud.user import require_admin
 from services import PersonalizedRecService
 from core.pkgs.database import get_db
 import asyncpg
@@ -17,7 +18,7 @@ async def train_model_endpoint(background_tasks: BackgroundTasks, admin: dict = 
     return {"message": "Recommendation model training has been started in the background."}
 
 @router.get("/", summary="Get Personalized Recommendations")
-async def get_recommendations_for_user(db: asyncpg.Connection = Depends(get_db), current_user: dict = Depends(get_current_user)) -> List[dict]:
+async def get_recommendations_for_user(db: asyncpg.Connection = Depends(get_db), current_user: dict = Depends(log_activity)) -> List[dict]:
     """
     Returns a list of personalized product recommendations for the current user.
     The model must be trained first via the /train endpoint.

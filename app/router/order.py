@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from core.pkgs import database
 from schemas.schemas import OrderCreate, OrderCreateRequest, OrderStatusUpdateRequest
 from crud import order as crud_order
-from crud.user import get_current_user, get_user_by_email, require_admin
+from core.dependencies import log_activity
+from crud.user import get_user_by_email, require_admin
 
 router = APIRouter(prefix="/order", tags=["order"])
 
 @router.post("/create")
-async def create_order(data: OrderCreate, db=Depends(database.get_db), current_user: dict = Depends(get_current_user)):
+async def create_order(data: OrderCreate, db=Depends(database.get_db), current_user: dict = Depends(log_activity)):
     user = await get_user_by_email(db, current_user['sub'])
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -19,7 +20,7 @@ async def create_order(data: OrderCreate, db=Depends(database.get_db), current_u
     return {"order_code": order_code, "message": "Order created"}
 
 @router.get("/")
-async def get_my_orders(db=Depends(database.get_db), current_user: dict = Depends(get_current_user)):
+async def get_my_orders(db=Depends(database.get_db), current_user: dict = Depends(log_activity)):
     user = await get_user_by_email(db, current_user['sub'])
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -27,7 +28,7 @@ async def get_my_orders(db=Depends(database.get_db), current_user: dict = Depend
     return {"orders": orders}
 
 @router.get("/{order_code}")
-async def get_order_by_code(order_code: str, db=Depends(database.get_db), current_user: dict = Depends(get_current_user)):
+async def get_order_by_code(order_code: str, db=Depends(database.get_db), current_user: dict = Depends(log_activity)):
     user = await get_user_by_email(db, current_user['sub'])
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
