@@ -11,7 +11,8 @@ REQUIRED_TOPICS = [
     'discounts',
     'order_events',
     'payment_events',
-    'auth_events'
+    'auth_events',
+    'user_activity_events'
 ]
 
 def get_admin_client_config():
