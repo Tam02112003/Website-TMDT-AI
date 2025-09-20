@@ -2,8 +2,25 @@ import asyncpg
 from typing import List, Optional
 from schemas import schemas
 
-async def get_news(db: asyncpg.Connection, skip: int = 0, limit: int = 100) -> List[schemas.News]:
-    rows = await db.fetch("SELECT id, title, content, image_url, is_active, created_at, updated_at FROM news WHERE is_active=TRUE ORDER BY id OFFSET $1 LIMIT $2", skip, limit)
+async def get_news(db: asyncpg.Connection, skip: int = 0, limit: int = 100, search_query: Optional[str] = None) -> List[schemas.News]:
+    query = """
+        SELECT id, title, content, image_url, is_active, created_at, updated_at
+        FROM news
+        WHERE is_active=TRUE
+    """
+    params = []
+    param_idx = 1
+
+    if search_query:
+        query += f" AND (title ILIKE ${param_idx} OR content ILIKE ${param_idx})"
+        params.append(f"%{search_query}%")
+        param_idx += 1
+
+    query += f" ORDER BY id OFFSET ${param_idx} LIMIT ${param_idx + 1}"
+    params.append(skip)
+    params.append(limit)
+
+    rows = await db.fetch(query, *params)
     return [schemas.News(
         id=row["id"], title=row["title"], content=row["content"], image_url=row["image_url"], is_active=row["is_active"], created_at=row["created_at"], updated_at=row["updated_at"]
     ) for row in rows]

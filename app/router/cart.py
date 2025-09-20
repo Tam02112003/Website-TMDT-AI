@@ -40,3 +40,11 @@ async def remove_from_cart(product_id: int, db=Depends(database.get_db), redis_c
         raise HTTPException(status_code=404, detail="User not found")
     await crud_cart.remove_from_cart(db, user['id'], product_id, redis_client)
     return {"message": "Removed from cart"}
+
+@router.delete("/clear")
+async def clear_user_cart(db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), current_user: dict = Depends(log_activity)):
+    user = await get_user_by_email(db, current_user['sub'])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await crud_cart.clear_cart(db, user['id'], redis_client)
+    return {"message": "Cart cleared"}

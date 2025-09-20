@@ -115,7 +115,7 @@ class VNPaySettings(BaseSettings):
     ENDPOINT: str = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'
     TMN_CODE: str
     HASH_SECRET: SecretStr
-    RETURN_URL: str = 'http://localhost:8000/payment/vnpay/callback'
+    RETURN_URL: str = 'http://localhost:5173/order-result'
 
 class SepaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEPAY_")
@@ -130,6 +130,13 @@ class SmtpSettings(BaseSettings):
     PASSWORD: SecretStr
     FROM: str
 
+class SMSSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SMS_")
+    ACCOUNT_SID: SecretStr
+    AUTH_TOKEN: SecretStr
+    SENDER_ID: str
+    DEFAULT_COUNTRY_CODE: str = "VN" # Default to Vietnam's country code
+
 class LocalLLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOCAL_LLM_")
     API_URL: str
@@ -140,6 +147,10 @@ class CloudinarySettings(BaseSettings):
     CLOUD_NAME: str
     API_KEY: str
     API_SECRET: SecretStr
+
+class FrontendSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="FRONTEND_")
+    URL: str = "http://localhost:5173"
 
 
 # Main Settings Class (adapted from docs/Settings.py)
@@ -170,8 +181,10 @@ class Settings:
             self.VNPAY = VNPaySettings()
             self.SEPAY = SepaySettings()
             self.SMTP = SmtpSettings()
+            self.SMS = SMSSettings()
             self.LOCAL_LLM = LocalLLMSettings()
             self.CLOUDINARY = CloudinarySettings()
+            self.FRONTEND = FrontendSettings()
 
             # Mark as initialized
             Settings._initialized = True

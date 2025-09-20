@@ -95,5 +95,10 @@ LOGGING_CONFIG = {
             "level": settings.KAFKA.LOG_LEVEL,
             "propagate": False,
         },
+        "core.app_config": {
+            "handlers": ["console", "file"],
+            "level": "DEBUG",
+            "propagate": False,
+        },
     },
 }

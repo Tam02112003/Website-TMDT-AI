@@ -11,7 +11,7 @@ class VNPay:
         self.vnp_url = settings.VNPAY.ENDPOINT
         self.return_url = settings.VNPAY.RETURN_URL
 
-    def generate_payment_url(self, order_id: str, amount: int, order_desc: str, bank_code: str = None, language: str = "vn"):
+    def generate_payment_url(self, order_id: str, amount: int, order_desc: str, ip_addr: str, bank_code: str = None, language: str = "vn"):
         vnp_params = {
             'vnp_Version': '2.1.0',
             'vnp_Command': 'pay',
@@ -23,7 +23,7 @@ class VNPay:
             'vnp_OrderType': 'other',
             'vnp_Locale': language,
             'vnp_ReturnUrl': self.return_url,
-            'vnp_IpAddr': '127.0.0.1', # This should be the actual client IP in a real scenario
+            'vnp_IpAddr': ip_addr,
             'vnp_CreateDate': datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         }
 

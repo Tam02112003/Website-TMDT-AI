@@ -80,9 +80,9 @@ async def get_personalized_recommendations(db: asyncpg.Connection, user_id: int,
     purchased_product_ids = set()
     for order in user_orders:
         order_details = await order_crud.get_order_by_code(db, order['order_code'])
-        if order_details and order_details.get('items'):
-            for item in order_details['items']:
-                purchased_product_ids.add(item['product_id'])
+        if order_details and order_details.items:
+            for item in order_details.items:
+                purchased_product_ids.add(item.product_id)
 
     if not purchased_product_ids:
         return []

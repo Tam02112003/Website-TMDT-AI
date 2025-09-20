@@ -21,6 +21,8 @@ class Product(ProductBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    discount_percent: Optional[float] = None
+    final_price: Optional[float] = None
     class Config:
         from_attributes = True
 
@@ -75,13 +77,18 @@ class CommentBase(BaseModel):
     product_id: int
     content: str
     user_name: Optional[str] = None
+    parent_comment_id: Optional[int] = None
 
 class CommentCreate(CommentBase):
     pass
 
+class CommentUpdate(BaseModel):
+    content: str
+
 class Comment(CommentBase):
     id: int
     created_at: datetime
+    user_avatar_url: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -100,11 +107,17 @@ class OrderItemRequest(BaseModel):
     quantity: int
     price: float
 
-class OrderCreateRequest(BaseModel):
-    user_id: int
+class ShippingAddressCreate(BaseModel):
+    address: str
+    city: str
+    postal_code: str
+    country: str
+    phone_number: str
+
+class OrderCreate(BaseModel):
     items: List[OrderItemRequest]
-    total_amount: float
-    payment_method: PaymentMethod = PaymentMethod.SEPAY
+    shipping_address: ShippingAddressCreate
+    payment_method: PaymentMethod
 
 class OrderStatusUpdateRequest(BaseModel):
     order_code: str
@@ -118,10 +131,10 @@ class CartUpdate(BaseModel):
     product_id: int
     quantity: int
 
-class OrderCreate(BaseModel):
+# This was previously OrderCreate, now it's more specific for COD
+class CODOrderCreate(BaseModel):
     items: List[OrderItemRequest]
     total_amount: float
-    payment_method: PaymentMethod = PaymentMethod.SEPAY
 
 class CODOrderCreate(BaseModel):
     items: List[OrderItemRequest]
@@ -145,3 +158,55 @@ class ChatbotRequest(BaseModel):
 
 class ChatbotResponse(BaseModel):
     answer: str
+
+class OrderCreateResponse(BaseModel):
+    order_code: str
+    message: str
+
+class User(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    phone_number: Optional[str] = None
+    is_admin: bool
+
+    class Config:
+        from_attributes = True
+
+class OrderItem(BaseModel):
+    product_id: int
+    quantity: int
+    price: float
+    product_name: str
+    image_url: Optional[str] = None
+
+class Order(BaseModel):
+    id: int
+    order_code: str
+    user_id: int
+    total_amount: float
+    status: str
+    created_at: datetime
+    items: List[OrderItem]
+    shipping_address: Optional[str]
+    shipping_city: Optional[str]
+    shipping_postal_code: Optional[str]
+    shipping_country: Optional[str]
+    customer_name: str
+    customer_phone: Optional[str] = None
+    shipping_phone_number: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    username: str
+    email: EmailStr
+    is_admin: bool
+
+class SendOtpRequest(BaseModel):
+    phone_number: str
+
+class VerifyOtpRequest(BaseModel):
+    phone_number: str
+    otp: str

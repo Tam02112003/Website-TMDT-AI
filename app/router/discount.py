@@ -21,10 +21,6 @@ async def read_discounts(skip: int = 0, limit: int = 100, db: Session = Depends(
     await redis_client.setex(cache_key, 60, json.dumps([r.model_dump(mode='json') for r in result]))
     return result
 
-@router.get("/deleted", response_model=list[schemas.Discount])
-async def read_deleted_discounts(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), user=Depends(require_admin)):
-    return await discount.get_deleted_discounts(db, skip=skip, limit=limit)
-
 
 @router.get("/{discount_id}", response_model=schemas.Discount)
 async def read_discount(discount_id: int, db: Session = Depends(database.get_db)):

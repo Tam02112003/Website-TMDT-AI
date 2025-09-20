@@ -10,7 +10,13 @@ from redis.asyncio import Redis
 from core.utils.enums import ChatbotSessionTime
 from core.app_config import logger
 
-async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_client: Redis, session_id: Optional[str] = None) -> schemas.ChatbotResponse:
+
+async def get_chatbot_response(
+    question: str,
+    db: asyncpg.Connection,
+    redis_client: Redis,
+    session_id: Optional[str] = None
+) -> schemas.ChatbotResponse:
     try:
         async with httpx.AsyncClient(timeout=None) as client:
             conversation_history = []
@@ -20,7 +26,8 @@ async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_clie
                     logger.debug(f"Found cached history for session {session_id}")
                     conversation_history = json.loads(cached_history)
 
-            conversation_history.append({"role": "user", "content": question})
+            # luôn ép về str
+            conversation_history.append({"role": "user", "content": str(question)})
 
             # 1. Request LLM to generate SQL
             sql_system_message = {
@@ -38,11 +45,11 @@ async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_clie
                     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
                     "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ); "
                     "Khi truy vấn theo tên sản phẩm, "
-                    "hãy sử dụng toán tử ILIKE với ký tự đại diện (%) để tìm kiếm gần đúng. "
+                    "hãy sử dụng toán tử ILIKE với ký tự đại diện (%) để tìm kiếm gần đúng và is_active = TRUE;. "
                     "Chỉ trả về một câu lệnh SQL hợp lệ. KHÔNG được trả lời bằng tiếng Việt, "
                     "KHÔNG thêm mô tả, KHÔNG format Markdown. "
                     "Ví dụ: Nếu người dùng hỏi 'áo phông', bạn sẽ trả lời "
-                    "'SELECT * FROM products WHERE name ILIKE '%áo phông%';'. "
+                    "'SELECT * FROM products WHERE name ILIKE '%áo phông%' AND is_active = TRUE;'. "
                     "Bây giờ, hãy tạo truy vấn SQL để lấy thông tin được yêu cầu từ bảng sản phẩm."
                 )
             }
@@ -74,12 +81,20 @@ async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_clie
 
                 if not re.match(r"^(SELECT|INSERT|UPDATE|DELETE)\b", sql_query, re.IGNORECASE):
                     logger.warning(f"LLM did not return a valid SQL. Got: [{sql_query}]. Treating as natural language response.")
-                    answer = sql_query
+                    answer = str(sql_query)
                     conversation_history.append({"role": "assistant", "content": answer})
 
                     if session_id:
                         trimmed = conversation_history[-ChatbotSessionTime.MAX_HISTORY_LEN:]
-                        await redis_client.set(f"chatbot_history:{session_id}", json.dumps(trimmed), ex=ChatbotSessionTime.SESSION_TTL)
+                        safe_history = [
+                            {"role": msg.get("role", "assistant"), "content": str(msg.get("content", ""))}
+                            for msg in trimmed
+                        ]
+                        await redis_client.set(
+                            f"chatbot_history:{session_id}",
+                            json.dumps(safe_history, ensure_ascii=False),
+                            ex=int(ChatbotSessionTime.SESSION_TTL)
+                        )
                         logger.debug(f"Updated conversation history for session {session_id}")
 
                     return schemas.ChatbotResponse(answer=answer, history=conversation_history)
@@ -114,8 +129,15 @@ async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_clie
                         "content": (
                             f"Bạn là một chatbot thân thiện và hữu ích cho một cửa hàng tên là Tamstore. "
                             f"Dựa trên dữ liệu sản phẩm sau đây: {json.dumps(product_data_dicts)}. "
-                            f"Hãy trả lời câu hỏi của người dùng một cách tự nhiên và thân thiện. "
-                            f"Nếu không có dữ liệu sản phẩm liên quan, hãy nói rằng bạn không tìm thấy sản phẩm nào phù hợp."
+                            f"Hãy trả lời câu hỏi của người dùng theo cấu trúc rõ ràng sau:\n\n"
+                            f"1. **Tiêu đề**: Ngắn gọn, mô tả nội dung câu trả lời.\n"
+                            f"2. **Danh sách sản phẩm (nếu có dữ liệu)**: Với mỗi sản phẩm hãy hiển thị:\n"
+                            f"   - Tên sản phẩm: ...\n"
+                            f"   - Giá: ... VNĐ\n"
+                            f"   - Số lượng còn: ...\n"
+                            f"   - Hình ảnh: [Xem ảnh]({{image_url}})\n\n"
+                            f"3. **Kết luận / gợi ý**: Nếu có, hãy gợi ý thêm lựa chọn hoặc hướng dẫn tiếp theo.\n\n"
+                            f"Nếu không có dữ liệu sản phẩm liên quan, hãy nói rõ ràng rằng không tìm thấy sản phẩm nào phù hợp."
                         )
                     }
                 ] + conversation_history,
@@ -129,13 +151,20 @@ async def get_chatbot_response(question: str, db: asyncpg.Connection, redis_clie
             logger.debug(f"Local LLM API NL Response Body: {nl_response.text}")
             nl_response.raise_for_status()
 
-            answer = nl_response.json()["choices"][0]["message"]["content"].strip()
-
+            answer = str(nl_response.json()["choices"][0]["message"]["content"].strip())
             conversation_history.append({"role": "assistant", "content": answer})
 
             if session_id:
                 trimmed = conversation_history[-ChatbotSessionTime.MAX_HISTORY_LEN:]
-                await redis_client.set(f"chatbot_history:{session_id}", json.dumps(trimmed), ex=ChatbotSessionTime.SESSION_TTL)
+                safe_history = [
+                    {"role": msg.get("role", "assistant"), "content": str(msg.get("content", ""))}
+                    for msg in trimmed
+                ]
+                await redis_client.set(
+                    f"chatbot_history:{session_id}",
+                    json.dumps(safe_history, ensure_ascii=False),
+                    ex=int(ChatbotSessionTime.SESSION_TTL)
+                )
                 logger.debug(f"Updated conversation history for session {session_id}")
 
             return schemas.ChatbotResponse(answer=answer, history=conversation_history)

@@ -3,6 +3,11 @@ from services.CloudinaryService import upload_image_from_bytes, get_image_url, d
 from core.app_config import logger
 import cloudinary.api
 from starlette.concurrency import run_in_threadpool
+from typing import List
+from pydantic import BaseModel
+
+class DeleteImagesRequest(BaseModel):
+    public_ids: List[str]
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
@@ -37,7 +42,7 @@ async def get_uploaded_image_url(public_id: str):
         logger.error(f"Error retrieving image URL for {public_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to retrieve image URL: {e}")
 
-@router.delete("/image/{public_id}")
+@router.delete("/image/{public_id:path}")
 async def delete_uploaded_image(public_id: str):
     try:
         # Cloudinary API destroy is synchronous, run in thread pool
@@ -48,6 +53,23 @@ async def delete_uploaded_image(public_id: str):
     except Exception as e:
         logger.error(f"Error deleting image {public_id}: {e}", exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete image: {e}")
+
+@router.post("/delete-multiple")
+async def delete_multiple_images(request: DeleteImagesRequest):
+    results = []
+    errors = []
+    for public_id in request.public_ids:
+        try:
+            result = await run_in_threadpool(delete_image, public_id)
+            results.append({"public_id": public_id, "status": "success", "result": result})
+        except Exception as e:
+            logger.error(f"Error deleting image {public_id}: {e}", exc_info=True)
+            errors.append({"public_id": public_id, "status": "failed", "error": str(e)})
+    
+    if errors:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail={"message": "Some images failed to delete", "errors": errors, "successes": results})
+    
+    return {"message": "All selected images deleted successfully", "results": results}
 
 @router.get("/images")
 async def list_uploaded_images(folder: str = Query(None, description="List images within a specific folder")):

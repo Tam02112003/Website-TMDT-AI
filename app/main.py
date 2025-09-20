@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.app_config import settings, logger, get_printable_settings
 from core.middleware import setup_middleware
-from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation
+from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user
 
 from core.kafka.kafka_client import close_kafka_producer
 from core.kafka.kafka_admin import create_topics_if_needed
@@ -49,4 +49,5 @@ app.include_router(chatbot.router)
 app.include_router(admin.router)
 app.include_router(upload.router)
 app.include_router(recommendation.router)
+app.include_router(user.router)
 
