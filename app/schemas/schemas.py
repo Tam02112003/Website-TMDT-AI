@@ -8,7 +8,7 @@ class ProductBase(BaseModel):
     description: Optional[str] = None
     price: float
     quantity: int
-    image_url: Optional[str] = None
+    image_urls: Optional[List[str]] = None
     is_active: Optional[bool] = True
 
 class ProductCreate(ProductBase):
@@ -150,7 +150,7 @@ class VNPayPaymentRequest(BaseModel):
 class AINewsGenerateRequest(BaseModel):
     topic: str
     keywords: Optional[str] = None
-    length: str = "vừa phải" # e.g., "ngắn", "vừa phải", "dài"
+    length: str = "vừa phải"
 
 class ChatbotRequest(BaseModel):
     question: str
@@ -177,8 +177,7 @@ class OrderItem(BaseModel):
     product_id: int
     quantity: int
     price: float
-    product_name: str
-    image_url: Optional[str] = None
+    image_urls: Optional[List[str]] = None
 
 class Order(BaseModel):
     id: int

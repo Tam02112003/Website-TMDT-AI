@@ -112,7 +112,7 @@ async def get_personalized_recommendations(db: asyncpg.Connection, user_id: int,
     # Fetch product details for the recommended IDs
     recommended_products = []
     for pid in recommended_ids:
-        product = await product_crud.get_product(db, product_id=pid)
+        product = await product_crud.get_product_by_id(db, product_id=pid)
         if product:
             recommended_products.append(product.model_dump())
             

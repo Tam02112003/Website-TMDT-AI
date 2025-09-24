@@ -120,7 +120,7 @@ async def restore_product_endpoint(product_id: int, db=Depends(database.get_db),
 
 @router.get("/products/{product_id}", summary="Get product by ID (Admin Only)")
 async def get_product_by_id_endpoint(product_id: int, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
-    product_item = await crud_product.get_product(db, product_id)
+    product_item = await crud_product.get_product_by_id(db, product_id)
     if not product_item:
         raise HTTPException(status_code=404, detail="Product not found")
     return product_item

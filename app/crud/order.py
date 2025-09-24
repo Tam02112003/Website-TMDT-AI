@@ -9,7 +9,7 @@ from schemas import schemas
 from schemas.schemas import OrderStatusUpdateRequest
 from core.email_sender import send_email
 from crud.user import get_user_by_id
-from crud.product import get_product
+from crud.product import get_product_by_id
 from starlette.concurrency import run_in_threadpool
 
 async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_id: int) -> str:
@@ -26,7 +26,7 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
     # Calculate total_amount from items, as frontend might send it, but backend should verify
     calculated_total_amount = 0
     for item in data.items:
-        product = await get_product(db, item.product_id)
+        product = await get_product_by_id(db, item.product_id)
         if not product or not product.is_active:
             raise HTTPException(status_code=400, detail=f"Product with ID {item.product_id} not found or is inactive.")
         # Calculate final_price on backend for comparison
@@ -88,18 +88,30 @@ async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional
         return None
     
     items_rows = await db.fetch("""
-        SELECT oi.*, p.name as product_name, p.image_url
+        SELECT oi.*, p.name as product_name, p.image_urls
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         WHERE oi.order_id = $1
     """, order_row['id'])
     
+    processed_items = []
+    for item_row in items_rows:
+        item_data = dict(item_row)
+        if item_data["image_urls"]:
+            try:
+                item_data["image_urls"] = json.loads(item_data["image_urls"])
+            except json.JSONDecodeError:
+                item_data["image_urls"] = [item_data["image_urls"]]
+        else:
+            item_data["image_urls"] = []
+        processed_items.append(schemas.OrderItem(**item_data))
+
     user = await get_user_by_id(db, order_row['user_id'])
     if not user:
         # This should not happen if database integrity is maintained
         raise HTTPException(status_code=404, detail="User not found for this order")
 
-    order_items = [schemas.OrderItem(**item) for item in items_rows]
+    order_items = processed_items
 
     return schemas.Order(
         id=order_row['id'],

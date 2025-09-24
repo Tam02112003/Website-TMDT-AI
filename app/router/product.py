@@ -44,7 +44,7 @@ async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] =
 
 @router.get("/{product_id}", response_model=schemas.Product)
 async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    db_product = await product_crud.get_product(db, product_id=product_id)
+    db_product = await product_crud.get_product_by_id(db, product_id=product_id)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return db_product
@@ -153,7 +153,7 @@ async def delete_product_comment(
 
 @router.get("/{product_id}/recommendations", response_model=List[schemas.Product])
 async def get_product_recommendations(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    target_product = await product_crud.get_product(db, product_id=product_id)
+    target_product = await product_crud.get_product_by_id(db, product_id=product_id)
     if target_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
