@@ -73,19 +73,11 @@ async def get_personalized_recommendations(db: asyncpg.Connection, user_id: int,
     product_id_to_idx = model_data['product_id_to_idx']
 
     # Get products purchased by the user
-    user_orders = await order_crud.get_orders_by_user(db, user_id)
-    if not user_orders:
-        return []
-
-    purchased_product_ids = set()
-    for order in user_orders:
-        order_details = await order_crud.get_order_by_code(db, order['order_code'])
-        if order_details and order_details.items:
-            for item in order_details.items:
-                purchased_product_ids.add(item.product_id)
-
+    purchased_product_ids = await order_crud.get_purchased_product_ids_by_user(db, user_id)
     if not purchased_product_ids:
         return []
+
+    purchased_product_ids = set(purchased_product_ids)
 
     # Calculate recommendation scores
     scores = {pid: 0.0 for pid in product_ids}

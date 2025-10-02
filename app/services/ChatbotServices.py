@@ -40,16 +40,20 @@ async def get_chatbot_response(
                     "description TEXT, "
                     "price FLOAT NOT NULL, "
                     "quantity INTEGER NOT NULL, "
-                    "image_url VARCHAR(255), "
+                    "image_urls TEXT, "
                     "is_active BOOLEAN DEFAULT TRUE, "
                     "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-                    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ); "
+                    "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                    "brand_id INTEGER, "
+                    "category_id INTEGER, "
+                    "release_date TIMESTAMP ); "
+                    "Khi truy vấn, hãy chọn các cột cụ thể và **KHÔNG** bao gồm cột `description`. "
                     "Khi truy vấn theo tên sản phẩm, "
                     "hãy sử dụng toán tử ILIKE với ký tự đại diện (%) để tìm kiếm gần đúng và is_active = TRUE;. "
                     "Chỉ trả về một câu lệnh SQL hợp lệ. KHÔNG được trả lời bằng tiếng Việt, "
                     "KHÔNG thêm mô tả, KHÔNG format Markdown. "
                     "Ví dụ: Nếu người dùng hỏi 'áo phông', bạn sẽ trả lời "
-                    "'SELECT * FROM products WHERE name ILIKE '%áo phông%' AND is_active = TRUE;'. "
+                    "'SELECT id, name, price, quantity, image_urls, is_active, created_at, updated_at, release_date, brand_id, category_id FROM products WHERE name ILIKE '%áo phông%' AND is_active = TRUE;'. "
                     "Bây giờ, hãy tạo truy vấn SQL để lấy thông tin được yêu cầu từ bảng sản phẩm."
                 )
             }
@@ -115,10 +119,12 @@ async def get_chatbot_response(
             # 3. Convert data for LLM
             product_data_dicts = [dict(record) for record in raw_product_data]
             for record_dict in product_data_dicts:
+                if 'description' in record_dict and record_dict['description']:
+                    record_dict['description'] = (record_dict['description'][:200] + '...') if len(record_dict['description']) > 200 else record_dict['description']
                 for key, value in record_dict.items():
                     if isinstance(value, datetime):
                         record_dict[key] = value.isoformat()
-            logger.debug(f"Product Data after conversion: {product_data_dicts}")
+            logger.debug(f"Product Data after conversion and truncation: {product_data_dicts}")
 
             # 4. Call LLM for natural language response
             nl_payload = {
@@ -127,17 +133,17 @@ async def get_chatbot_response(
                     {
                         "role": "system",
                         "content": (
-                            f"Bạn là một chatbot thân thiện và hữu ích cho một cửa hàng tên là Tamstore. "
-                            f"Dựa trên dữ liệu sản phẩm sau đây: {json.dumps(product_data_dicts)}. "
-                            f"Hãy trả lời câu hỏi của người dùng theo cấu trúc rõ ràng sau:\n\n"
-                            f"1. **Tiêu đề**: Ngắn gọn, mô tả nội dung câu trả lời.\n"
-                            f"2. **Danh sách sản phẩm (nếu có dữ liệu)**: Với mỗi sản phẩm hãy hiển thị:\n"
-                            f"   - Tên sản phẩm: ...\n"
-                            f"   - Giá: ... VNĐ\n"
-                            f"   - Số lượng còn: ...\n"
-                            f"   - Hình ảnh: [Xem ảnh]({{image_url}})\n\n"
-                            f"3. **Kết luận / gợi ý**: Nếu có, hãy gợi ý thêm lựa chọn hoặc hướng dẫn tiếp theo.\n\n"
-                            f"Nếu không có dữ liệu sản phẩm liên quan, hãy nói rõ ràng rằng không tìm thấy sản phẩm nào phù hợp."
+                            f"Bạn là chatbot trả lời về sản phẩm của cửa hàng Tamstore."
+                            f" Dữ liệu sản phẩm mà bạn được phép dùng: {json.dumps(product_data_dicts)}."
+                            f" Chỉ được sử dụng dữ liệu này để trả lời, không được suy đoán hoặc bịa thông tin khác."
+                            f" Nếu câu hỏi vượt ngoài dữ liệu, hãy trả lời: 'Xin lỗi, tôi không có thông tin cho câu hỏi này.'"
+                            f" Khi hiển thị sản phẩm, luôn tuân thủ định dạng:"
+                            f"\nTên sản phẩm: [Tên sản phẩm]"
+                            f"\nGiá: [Giá] VNĐ"
+                            f"\nSố lượng còn: [Số lượng]"
+                            f"\nẢnh sản phẩm: ![Ảnh sản phẩm]([URL hình ảnh])"
+                            f"\n---"
+                            f"\n không bịa thông tin."
                         )
                     }
                 ] + conversation_history,

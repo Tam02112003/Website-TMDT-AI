@@ -3,6 +3,30 @@ from typing import Optional, List
 from datetime import datetime
 from core.utils.enums import OrderStatus, PaymentMethod
 
+class BrandBase(BaseModel):
+    name: str
+
+class BrandCreate(BrandBase):
+    pass
+
+class Brand(BrandBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+class CategoryBase(BaseModel):
+    name: str
+
+class CategoryCreate(CategoryBase):
+    pass
+
+class Category(CategoryBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
 class ProductBase(BaseModel):
     name: str
     description: Optional[str] = None
@@ -10,6 +34,9 @@ class ProductBase(BaseModel):
     quantity: int
     image_urls: Optional[List[str]] = None
     is_active: Optional[bool] = True
+    release_date: Optional[datetime] = None
+    brand_id: Optional[int] = None
+    category_id: Optional[int] = None
 
 class ProductCreate(ProductBase):
     pass
@@ -23,6 +50,11 @@ class Product(ProductBase):
     updated_at: datetime
     discount_percent: Optional[float] = None
     final_price: Optional[float] = None
+    release_date: Optional[datetime] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    brand: Optional[Brand] = None
+    category: Optional[Category] = None
     class Config:
         from_attributes = True
 
@@ -169,6 +201,7 @@ class User(BaseModel):
     email: EmailStr
     phone_number: Optional[str] = None
     is_admin: bool
+    avatar_url: Optional[str] = None
 
     class Config:
         from_attributes = True

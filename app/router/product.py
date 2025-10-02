@@ -38,8 +38,8 @@ async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection 
     return new_product
 
 @router.get("/", response_model=List[schemas.Product])
-async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: asyncpg.Connection = Depends(get_db)):
-    products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search)
+async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db)):
+    products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search, category_id=category_id, brand_id=brand_id, min_price=min_price, max_price=max_price)
     return products
 
 @router.get("/{product_id}", response_model=schemas.Product)

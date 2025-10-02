@@ -196,3 +196,17 @@ async def get_all_purchase_history(db: asyncpg.Connection) -> List[dict]:
     successful_statuses = [OrderStatus.PAID.value, OrderStatus.PROCESSING.value, OrderStatus.DELIVERED.value]
     rows = await db.fetch(query, successful_statuses)
     return [dict(row) for row in rows]
+
+async def get_purchased_product_ids_by_user(db: asyncpg.Connection, user_id: int) -> List[int]:
+    """
+    Fetches all product IDs from successful orders for a given user.
+    """
+    query = """
+        SELECT oi.product_id
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        WHERE o.user_id = $1 AND o.status = ANY($2::text[])
+    """
+    successful_statuses = [OrderStatus.PAID.value, OrderStatus.PROCESSING.value, OrderStatus.DELIVERED.value]
+    rows = await db.fetch(query, user_id, successful_statuses)
+    return [row['product_id'] for row in rows]

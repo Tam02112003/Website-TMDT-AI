@@ -7,7 +7,6 @@ from fastapi import Depends, HTTPException
 from core.settings import settings
 import hashlib
 import random
-import time
 from core.redis.redis_client import get_redis_client
 
 async def get_user_by_id(db: asyncpg.Connection, user_id: int) -> Optional[dict]:
