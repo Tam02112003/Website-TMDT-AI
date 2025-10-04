@@ -24,7 +24,15 @@ async def get_cart(db: asyncpg.Connection, user_id: int, redis_client: Redis) ->
     return processed_items
 
 async def add_to_cart(db: asyncpg.Connection, user_id: int, product_id: int, quantity: int, redis_client: Redis):
-    await db.execute("INSERT INTO cart (user_id, product_id, quantity) VALUES ($1, $2, $3)", user_id, product_id, quantity)
+    # Check if product already exists in cart
+    existing_item = await db.fetchrow("SELECT quantity FROM cart WHERE user_id = $1 AND product_id = $2", user_id, product_id)
+
+    if existing_item:
+        new_quantity = existing_item['quantity'] + quantity
+        await db.execute("UPDATE cart SET quantity = $1 WHERE user_id = $2 AND product_id = $3", new_quantity, user_id, product_id)
+    else:
+        await db.execute("INSERT INTO cart (user_id, product_id, quantity) VALUES ($1, $2, $3)", user_id, product_id, quantity)
+    
     await redis_client.delete(f"cart:{user_id}")
 
 async def update_cart(db: asyncpg.Connection, user_id: int, product_id: int, quantity: int, redis_client: Redis):
@@ -33,4 +41,8 @@ async def update_cart(db: asyncpg.Connection, user_id: int, product_id: int, qua
 
 async def remove_from_cart(db: asyncpg.Connection, user_id: int, product_id: int, redis_client: Redis):
     await db.execute("DELETE FROM cart WHERE user_id = $1 AND product_id = $2", user_id, product_id)
+    await redis_client.delete(f"cart:{user_id}")
+
+async def clear_cart(db: asyncpg.Connection, user_id: int, redis_client: Redis):
+    await db.execute("DELETE FROM cart WHERE user_id = $1", user_id)
     await redis_client.delete(f"cart:{user_id}")

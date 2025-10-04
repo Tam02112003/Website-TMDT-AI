@@ -11,6 +11,9 @@ from core.redis.redis_client import get_redis_client
 import json
 from core.kafka.kafka_client import producer
 from datetime import datetime
+from typing import Optional
+from core.dependencies import log_activity # Import log_activity for authentication
+from crud.user import get_user_by_email, require_admin # Import for user and admin checks
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -35,13 +38,13 @@ async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection 
     return new_product
 
 @router.get("/", response_model=List[schemas.Product])
-async def read_products(skip: int = 0, limit: int = 100, db: asyncpg.Connection = Depends(get_db)):
-    products = await product_crud.get_products(db, skip=skip, limit=limit)
+async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db)):
+    products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search, category_id=category_id, brand_id=brand_id, min_price=min_price, max_price=max_price)
     return products
 
 @router.get("/{product_id}", response_model=schemas.Product)
 async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    db_product = await product_crud.get_product(db, product_id=product_id)
+    db_product = await product_crud.get_product_by_id(db, product_id=product_id)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return db_product
@@ -92,63 +95,69 @@ async def delete_product(product_id: int, db: asyncpg.Connection = Depends(get_d
 
     return db_product
 
-# Add Get Deleted Products endpoint with Redis caching
-@router.get("/deleted/", response_model=List[schemas.Product])
-async def read_deleted_products(skip: int = 0, limit: int = 100, db: asyncpg.Connection = Depends(get_db)):
-    redis_client = await get_redis_client()
-    cache_key = f"deleted_products_cache:skip_{skip}:limit_{limit}"
-    
-    cached_products = await redis_client.get(cache_key)
-    if cached_products:
-        logger.info("Serving deleted products from Redis cache.")
-        return [schemas.Product.model_validate(json.loads(p)) for p in json.loads(cached_products)]
 
-    products = await product_crud.get_deleted_products(db, skip=skip, limit=limit)
-    
-    # Store in cache (serialize Pydantic models to JSON strings)
-    await redis_client.set(cache_key, json.dumps([p.model_dump_json() for p in products]), ex=3600) # Cache for 1 hour
-    
-    return products
-
-# Add Restore Product endpoint with Kafka publishing
-@router.post("/{product_id}/restore", response_model=schemas.Product)
-async def restore_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    db_product = await product_crud.restore_product(db, product_id)
-    if db_product is None:
-        raise HTTPException(status_code=404, detail="Product not found or already active")
-    
-    # Invalidate cache for deleted products
-    redis_client = await get_redis_client()
-    await redis_client.delete("deleted_products_cache")
-
-    # Publish Kafka event
-    event_data = {
-        "product_id": product_id,
-        "operation_type": "restore",
-        "timestamp": datetime.now().isoformat()
-    }
-    producer.send("product_events", json.dumps(event_data).encode('utf-8'))
-    logger.info(f"Kafka event 'product_restore' sent for product_id: {product_id}")
-
-    return db_product
 
 @router.post("/{product_id}/comments", response_model=schemas.Comment)
-async def create_comment_for_product(product_id: int, comment: schemas.CommentCreate, db: asyncpg.Connection = Depends(get_db)):
+async def create_comment_for_product(product_id: int, comment: schemas.CommentCreate, db: asyncpg.Connection = Depends(get_db), current_user: dict = Depends(log_activity)):
     # Ensure the comment is for the correct product
     comment.product_id = product_id
+    # Set user_name from current_user if not provided
+    if not comment.user_name:
+        comment.user_name = current_user.get('username', 'Anonymous')
     return await product_crud.create_comment(db, comment)
 
 @router.get("/{product_id}/comments", response_model=List[schemas.Comment])
 async def read_product_comments(product_id: int, db: asyncpg.Connection = Depends(get_db)):
     return await product_crud.get_comments(db, product_id)
 
+@router.put("/{product_id}/comments/{comment_id}", response_model=schemas.Comment)
+async def update_product_comment(
+    product_id: int,
+    comment_id: int,
+    comment_update: schemas.CommentUpdate,
+    db: asyncpg.Connection = Depends(get_db),
+    current_user: dict = Depends(log_activity)
+):
+    # First, get the existing comment to check ownership
+    existing_comment = await product_crud.get_comment_by_id(db, comment_id)
+    if not existing_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+        if existing_comment.user_name != current_user.get('username') and not current_user.get('is_admin'):        raise HTTPException(status_code=403, detail="Not authorized to update this comment")
+
+    updated_comment = await product_crud.update_comment(db, comment_id, comment_update.content)
+    if not updated_comment:
+        raise HTTPException(status_code=500, detail="Failed to update comment")
+    return updated_comment
+
+@router.delete("/{product_id}/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_product_comment(
+    product_id: int,
+    comment_id: int,
+    db: asyncpg.Connection = Depends(get_db),
+    current_user: dict = Depends(log_activity)
+):
+    # First, get the existing comment to check ownership
+    existing_comment = await product_crud.get_comment_by_id(db, comment_id)
+    if not existing_comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    # Check if the current user is the author of the comment or an admin
+    if existing_comment.user_name != current_user.get('username') and not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this comment")
+
+    deleted = await product_crud.delete_comment(db, comment_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete comment")
+    return
+
 @router.get("/{product_id}/recommendations", response_model=List[schemas.Product])
 async def get_product_recommendations(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    target_product = await product_crud.get_product(db, product_id=product_id)
+    target_product = await product_crud.get_product_by_id(db, product_id=product_id)
     if target_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    all_products = await product_crud.get_all_products(db)
+    all_products = await product_crud.get_products(db)
     
     recommended_products = get_recommendations(target_product, all_products)
     

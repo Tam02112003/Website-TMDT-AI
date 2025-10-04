@@ -2,14 +2,17 @@ import asyncpg
 import secrets
 import json
 from typing import List, Optional
-
+from fastapi import HTTPException
 from core.utils.enums import OrderStatus, PaymentMethod
 from core.kafka.kafka_client import producer
-from schemas.schemas import OrderCreateRequest, OrderStatusUpdateRequest
+from schemas import schemas
+from schemas.schemas import OrderStatusUpdateRequest
 from core.email_sender import send_email
 from crud.user import get_user_by_id
+from crud.product import get_product_by_id
+from starlette.concurrency import run_in_threadpool
 
-async def create_order(db: asyncpg.Connection, data: OrderCreateRequest) -> str:
+async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_id: int) -> str:
     # Generate a unique, human-friendly order code
     while True:
         order_code = f"ORD-{secrets.token_hex(4).upper()}"
@@ -20,41 +23,112 @@ async def create_order(db: asyncpg.Connection, data: OrderCreateRequest) -> str:
     # Determine order status based on payment method
     status = OrderStatus.PROCESSING if data.payment_method == PaymentMethod.COD else OrderStatus.PENDING
 
+    # Calculate total_amount from items, as frontend might send it, but backend should verify
+    calculated_total_amount = 0
+    for item in data.items:
+        product = await get_product_by_id(db, item.product_id)
+        if not product or not product.is_active:
+            raise HTTPException(status_code=400, detail=f"Product with ID {item.product_id} not found or is inactive.")
+        # Calculate final_price on backend for comparison
+        backend_final_price = product.price
+        if product.discount_percent is not None:
+            backend_final_price = product.price * (1 - product.discount_percent / 100)
+
+        if abs(backend_final_price - item.price) > 0.01: # Use a small tolerance for float comparison
+            raise HTTPException(status_code=400, detail=f"Price mismatch for product ID {item.product_id}. Expected {backend_final_price:.2f}, got {item.price:.2f}.")
+        if product.quantity < item.quantity:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for product ID {item.product_id}. Available: {product.quantity}, Requested: {item.quantity}.")
+        calculated_total_amount += backend_final_price * item.quantity
+
     row = await db.fetchrow(
-        "INSERT INTO orders (user_id, total_amount, status, order_code, payment_method) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-        data.user_id, data.total_amount, status.value, order_code, data.payment_method.value
+        "INSERT INTO orders (user_id, total_amount, status, order_code, payment_method, shipping_address, shipping_city, shipping_postal_code, shipping_country, shipping_phone_number) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+        user_id, calculated_total_amount, status.value, order_code, data.payment_method.value,
+        data.shipping_address.address, data.shipping_address.city, data.shipping_address.postal_code, data.shipping_address.country, data.shipping_address.phone_number
     )
     order_id = row["id"]
     for item in data.items:
         await db.execute("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)",
                          order_id, item.product_id, item.quantity, item.price)
+        # Deduct product quantity from stock
+        await db.execute("UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1", item.quantity, item.product_id)
 
     event = {
         "event": "order_created",
         "order_code": order_code,
-        "user_id": data.user_id,
-        "total_amount": data.total_amount,
+        "user_id": user_id,
+        "total_amount": calculated_total_amount,
         "payment_method": data.payment_method.value,
-        "items": [item.model_dump() for item in data.items]
+        "items": [item.model_dump() for item in data.items],
+        "shipping_address": data.shipping_address.model_dump()
     }
     producer.send('order_events', json.dumps(event).encode('utf-8'))
+
+    # Send email confirmation for COD orders immediately
+    if data.payment_method == PaymentMethod.COD:
+        user = await get_user_by_id(db, user_id)
+        if user and user.get('email'):
+            subject = f"Order Confirmation #{order_code}"
+            message = f"Dear {user.get('username')},\n\nYour order {order_code} has been placed successfully and is awaiting processing.\n\nThank you for your purchase!"
+            await run_in_threadpool(send_email, user.get('email'), subject, message)
+
     return order_code
 
-async def get_orders_by_user(db: asyncpg.Connection, user_id: int) -> List[dict]:
-    orders = await db.fetch("SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC", user_id)
+async def get_orders_by_user(db: asyncpg.Connection, user_id: int, search: Optional[str] = None) -> List[dict]:
+    if search:
+        query = "SELECT * FROM orders WHERE user_id = $1 AND order_code ILIKE $2 ORDER BY created_at DESC"
+        orders = await db.fetch(query, user_id, f'%{search}%')
+    else:
+        query = "SELECT * FROM orders WHERE user_id = $1 ORDER BY created_at DESC"
+        orders = await db.fetch(query, user_id)
     return [dict(order) for order in orders]
 
-async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional[dict]:
-    order = await db.fetchrow("SELECT * FROM orders WHERE order_code = $1", order_code)
-    if not order:
+async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional[schemas.Order]:
+    order_row = await db.fetchrow("SELECT * FROM orders WHERE order_code = $1", order_code)
+    if not order_row:
         return None
     
-    items = await db.fetch("SELECT * FROM order_items WHERE order_id = $1", order['id'])
+    items_rows = await db.fetch("""
+        SELECT oi.*, p.name as product_name, p.image_urls
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = $1
+    """, order_row['id'])
     
-    result = dict(order)
-    result['items'] = [dict(item) for item in items]
-    
-    return result
+    processed_items = []
+    for item_row in items_rows:
+        item_data = dict(item_row)
+        if item_data["image_urls"]:
+            try:
+                item_data["image_urls"] = json.loads(item_data["image_urls"])
+            except json.JSONDecodeError:
+                item_data["image_urls"] = [item_data["image_urls"]]
+        else:
+            item_data["image_urls"] = []
+        processed_items.append(schemas.OrderItem(**item_data))
+
+    user = await get_user_by_id(db, order_row['user_id'])
+    if not user:
+        # This should not happen if database integrity is maintained
+        raise HTTPException(status_code=404, detail="User not found for this order")
+
+    order_items = processed_items
+
+    return schemas.Order(
+        id=order_row['id'],
+        order_code=order_row['order_code'],
+        user_id=order_row['user_id'],
+        total_amount=order_row['total_amount'],
+        status=order_row['status'],
+        created_at=order_row['created_at'],
+        items=order_items,
+        shipping_address=order_row['shipping_address'],
+        shipping_city=order_row['shipping_city'],
+        shipping_postal_code=order_row['shipping_postal_code'],
+        shipping_country=order_row['shipping_country'],
+        customer_name=user['username'],
+        customer_phone=user.get('phone_number'), # Use .get for optional field
+        shipping_phone_number=order_row.get('shipping_phone_number') # Get from order_row
+    )
 
 async def update_order_status(db: asyncpg.Connection, data: OrderStatusUpdateRequest):
     await db.execute("UPDATE orders SET status = $1 WHERE order_code = $2", data.status.value, data.order_code)
@@ -94,6 +168,20 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
 
     return True
 
+async def get_all_orders(db: asyncpg.Connection, search_query: Optional[str] = None) -> List[dict]:
+    query = "SELECT * FROM orders"
+    params = []
+    param_count = 1
+
+    if search_query:
+        query += f" WHERE order_code ILIKE ${param_count} OR CAST(user_id AS TEXT) ILIKE ${param_count}"
+        params.append(f'%{search_query}%')
+        param_count += 1
+
+    query += " ORDER BY created_at DESC"
+    orders = await db.fetch(query, *params)
+    return [dict(order) for order in orders]
+
 async def get_all_purchase_history(db: asyncpg.Connection) -> List[dict]:
     """
     Fetches all user-product purchase pairs from successful orders.
@@ -108,3 +196,17 @@ async def get_all_purchase_history(db: asyncpg.Connection) -> List[dict]:
     successful_statuses = [OrderStatus.PAID.value, OrderStatus.PROCESSING.value, OrderStatus.DELIVERED.value]
     rows = await db.fetch(query, successful_statuses)
     return [dict(row) for row in rows]
+
+async def get_purchased_product_ids_by_user(db: asyncpg.Connection, user_id: int) -> List[int]:
+    """
+    Fetches all product IDs from successful orders for a given user.
+    """
+    query = """
+        SELECT oi.product_id
+        FROM orders o
+        JOIN order_items oi ON o.id = oi.order_id
+        WHERE o.user_id = $1 AND o.status = ANY($2::text[])
+    """
+    successful_statuses = [OrderStatus.PAID.value, OrderStatus.PROCESSING.value, OrderStatus.DELIVERED.value]
+    rows = await db.fetch(query, user_id, successful_statuses)
+    return [row['product_id'] for row in rows]

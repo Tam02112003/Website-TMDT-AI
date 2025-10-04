@@ -1,14 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from schemas import schemas
-from crud import sepay as sepay_crud, payment as crud_payment
+from crud import sepay as sepay_crud, payment as crud_payment, order as crud_order # Import crud_order
 from core.pkgs.database import get_db
 import asyncpg
 from core.app_config import logger
 from core.pkgs.vnpay import vnpay_client
 from fastapi.responses import RedirectResponse, JSONResponse
 from core.utils.enums import OrderStatus
+from core.dependencies import get_current_user # Import get_current_user
 
 router = APIRouter(prefix="/payment", tags=["Payment"])
+
+@router.post("/orders", response_model=schemas.OrderCreateResponse) # Assuming an OrderCreateResponse schema
+async def create_order_endpoint(
+    order_data: schemas.OrderCreate,
+    db: asyncpg.Connection = Depends(get_db),
+    current_user: dict = Depends(get_current_user) # Use dict for current_user
+):
+    try:
+        order_code = await crud_order.create_order(db, order_data, current_user.id)
+        return {"order_code": order_code, "message": "Order created successfully"}
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Failed to create order: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create order: {e}")
 
 @router.post("/sepay/intent")
 async def create_payment_intent(amount: float, order_id: str):
@@ -40,16 +56,20 @@ async def verify_payment(payment_intent_id: str):
         raise HTTPException(status_code=400, detail="Payment verification failed")
 
 @router.post("/vnpay/create", response_model=schemas.VNPayPaymentRequest)
-async def create_vnpay_payment(payment_request: schemas.VNPayPaymentRequest):
+async def create_vnpay_payment(payment_request: schemas.VNPayPaymentRequest, request: Request):
     try:
+        # Get client IP from request
+        client_ip = request.client.host
+
         payment_url = vnpay_client.generate_payment_url(
             order_id=payment_request.order_id,
             amount=payment_request.amount,
             order_desc=payment_request.order_desc,
+            ip_addr=client_ip,  # Pass the client IP
             bank_code=payment_request.bank_code,
             language=payment_request.language
         )
-        return RedirectResponse(url=payment_url, status_code=status.HTTP_303_SEE_OTHER)
+        return JSONResponse({"payment_url": payment_url}, status_code=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Failed to create VNPay payment: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to create VNPay payment: {e}")
@@ -73,12 +93,15 @@ async def vnpay_callback(request: Request, db: asyncpg.Connection = Depends(get_
             # Payment successful
             logger.info(f"VNPay payment successful for Order ID: {vnp_TxnRef}, Amount: {vnp_Amount}")
             await crud_payment.update_order_payment_status(db, vnp_TxnRef, OrderStatus.PAID)
-            return JSONResponse({"RspCode": "00", "Message": "Success"})
+            # Redirect to frontend with success status
+            return RedirectResponse(url=f"http://localhost:5173/order-result?vnp_ResponseCode=00&vnp_TxnRef={vnp_TxnRef}")
         else:
             # Payment failed or pending
             logger.warning(f"VNPay payment failed/pending for Order ID: {vnp_TxnRef}, Response Code: {vnp_ResponseCode}, Status: {vnp_TransactionStatus}")
             await crud_payment.update_order_payment_status(db, vnp_TxnRef, OrderStatus.PAYMENT_ERROR)
-            return JSONResponse({"RspCode": "01", "Message": "Payment Failed or Pending"})
+            # Redirect to frontend with failure status
+            return RedirectResponse(url=f"http://localhost:5173/order-result?vnp_ResponseCode={vnp_ResponseCode}&vnp_TxnRef={vnp_TxnRef}&message=Payment Failed or Pending")
     else:
         logger.error(f"VNPay callback verification failed: {message}")
-        return JSONResponse({"RspCode": "97", "Message": message}, status_code=status.HTTP_400_BAD_REQUEST)
+        # Redirect to frontend with failure status
+        return RedirectResponse(url=f"http://localhost:5173/order-result?vnp_ResponseCode=97&message={message}")

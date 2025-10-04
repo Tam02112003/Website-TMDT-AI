@@ -1,50 +1,56 @@
-from fastapi import APIRouter, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi import APIRouter, Response, HTTPException
+from pydantic import BaseModel
 import requests
-import os
+import base64
+from io import BytesIO
+
+from core.app_config import logger
 from core.settings import settings
+
+class TryOnRequest(BaseModel):
+    product_image_url: str
+    user_image_base64: str
+
 router = APIRouter(prefix="/tryon", tags=["tryon"])
 
-@router.post("/upload")
-def tryon(
-    clothing_image: UploadFile = File(None),
-    clothing_prompt: str = Form(None),
-    avatar_image: UploadFile = File(None),
-    avatar_sex: str = Form(None),
-    avatar_prompt: str = Form(None),
-    background_image: UploadFile = File(None),
-    background_prompt: str = Form(None),
-    seed: str = Form(None)
-):
+@router.post("/")
+async def tryon_endpoint(request: TryOnRequest):
+    # Decode base64 user image
+    try:
+        # Remove data:image/jpeg;base64, prefix if present
+        header, base64_string = request.user_image_base64.split(',', 1) if ',' in request.user_image_base64 else ('', request.user_image_base64)
+        user_image_bytes = base64.b64decode(base64_string)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
+
     url = "https://try-on-diffusion.p.rapidapi.com/try-on-file"
-    files = {}
-    if clothing_image:
-        files["clothing_image"] = (clothing_image.filename, clothing_image.file, clothing_image.content_type)
-    if avatar_image:
-        files["avatar_image"] = (avatar_image.filename, avatar_image.file, avatar_image.content_type)
-    if background_image:
-        files["background_image"] = (background_image.filename, background_image.file, background_image.content_type)
+    files = {
+        "clothing_image": ("product_image.jpeg", BytesIO(requests.get(request.product_image_url).content), 'image/jpeg'),
+        "avatar_image": ("user_avatar.jpeg", BytesIO(user_image_bytes), 'image/jpeg')
+    }
     data = {}
-    if clothing_prompt:
-        data["clothing_prompt"] = clothing_prompt
-    if avatar_sex:
-        data["avatar_sex"] = avatar_sex
-    if avatar_prompt:
-        data["avatar_prompt"] = avatar_prompt
-    if background_prompt:
-        data["background_prompt"] = background_prompt
-    if seed:
-        data["seed"] = seed
     headers = {
         "x-rapidapi-key": settings.RAPID_API.KEY.get_secret_value(),
         "x-rapidapi-host": "try-on-diffusion.p.rapidapi.com"
     }
     response = requests.post(url, files=files, data=data, headers=headers)
+    logger.info(f"External API response status: {response.status_code}")
+    logger.info(f"External API response content-type: {response.headers.get('content-type')}")
+
     content_type = response.headers.get('content-type', '')
     # Always return image as bytes if response is binary
     if 'image' in content_type or (response.content and response.content[:2] == b'\xff\xd8'):
-        return Response(content=response.content, media_type=content_type or 'image/jpeg')
+        # Convert image bytes to base64 and return as JSON
+        base64_image = base64.b64encode(response.content).decode('utf-8')
+        final_response = {"result_image_url": f"data:{content_type or 'image/jpeg'};base64,{base64_image}"}
+        logger.info("Returning Base64 image result to frontend.")
+        return final_response
     try:
-        return response.json()
+        # If not an image, try to parse as JSON (e.g., for error messages from external API)
+        json_response = response.json()
+        logger.info(f"Returning JSON response from external API: {json_response}")
+        return json_response
     except Exception:
-        return {"error": "Invalid JSON response", "content": response.text, "status_code": response.status_code}
+        # Fallback for non-image, non-JSON responses
+        logger.error(f"External API returned unexpected non-JSON, non-image response: {response.text}")
+        return {"error": "External API returned an unexpected response", "content": response.text, "status_code": response.status_code}

@@ -88,7 +88,9 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
     }
     producer.send("auth_events", json.dumps(event_data).encode('utf-8'))
 
-    return JSONResponse({"access_token": token, "token_type": "bearer"})
+    # Redirect to frontend with token
+    frontend_url = f"{settings.FRONTEND.URL}/auth/google/callback?token={token}"
+    return RedirectResponse(url=frontend_url)
 
 
 @router.post("/register", dependencies=[Depends(rate_limit)])

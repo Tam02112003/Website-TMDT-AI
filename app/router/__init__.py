@@ -1,1 +1,1 @@
-from . import auth, product, discount, news, cart, order, tryon, payment, upload, recommendation, admin
+from . import auth, product, discount, news, cart, order, tryon, payment, upload, recommendation, admin, user, chatbot

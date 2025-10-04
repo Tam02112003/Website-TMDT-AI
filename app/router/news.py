@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
@@ -14,18 +16,15 @@ from schemas.schemas import AINewsGenerateRequest
 router = APIRouter(prefix="/news", tags=["news"])
 
 @router.get("/", response_model=list[schemas.News])
-async def read_news(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), redis_client: Redis = Depends(get_redis_client)):
-    cache_key = f"news:{skip}:{limit}"
+async def read_news(skip: int = 0, limit: int = 100, search: Optional[str] = None, db: Session = Depends(database.get_db), redis_client: Redis = Depends(get_redis_client)):
+    cache_key = f"news:{skip}:{limit}:{search}"
     cached = await redis_client.get(cache_key)
     if cached:
         return [schemas.News(**p) for p in json.loads(cached)]
-    result = await news.get_news(db, skip=skip, limit=limit)
+    result = await news.get_news(db, skip=skip, limit=limit, search_query=search)
     await redis_client.setex(cache_key, 60, json.dumps([r.model_dump(mode='json') for r in result]))
     return result
 
-@router.get("/deleted", response_model=list[schemas.News])
-async def read_deleted_news(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), user=Depends(require_admin)):
-    return await news.get_deleted_news(db, skip=skip, limit=limit)
 
 @router.get("/{news_id}", response_model=schemas.News)
 async def read_news_item(news_id: int, db: Session = Depends(database.get_db)):
