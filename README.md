@@ -1,6 +1,3 @@
-# E-Commerce Website with AI Features
-
-```markdown
 # 🛍️ E-Commerce Website with AI Features
 
 A modern e-commerce backend platform built with FastAPI, featuring AI-powered chatbot, personalized recommendations, and virtual try-on capabilities.
