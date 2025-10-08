@@ -183,9 +183,6 @@ class Settings:
             self.CLOUDINARY = CloudinarySettings()
             self.FRONTEND = FrontendSettings()
 
-            # Dynamically set the VNPAY return URL
-            self.VNPAY.RETURN_URL = f"{self.FRONTEND.URL}/order-result"
-
             # Mark as initialized
             Settings._initialized = True
 
