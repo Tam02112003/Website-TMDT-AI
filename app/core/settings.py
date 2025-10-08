@@ -110,12 +110,7 @@ class MomoSettings(BaseSettings):
     SECRET_KEY: SecretStr
     RETURN_URL: str = 'http://localhost:8000/payment/momo/callback'
 
-class VNPaySettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="VNPAY_")
-    ENDPOINT: str = 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html'
-    TMN_CODE: str
-    HASH_SECRET: SecretStr
-    RETURN_URL: str = 'http://localhost:5173/order-result'
+
 
 class SepaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEPAY_")
@@ -180,7 +175,7 @@ class Settings:
             self.REDIS = RedisSettings()
             self.KAFKA = KafkaSettings()
             self.MOMO = MomoSettings()
-            self.VNPAY = VNPaySettings()
+
             self.SEPAY = SepaySettings()
             self.SMTP = SmtpSettings()
             self.SMS = SMSSettings()

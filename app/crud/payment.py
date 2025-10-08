@@ -1,5 +1,3 @@
-# This file would contain logic for processing payments with external gateways.
-# For now, it's a placeholder.
 from core.app_config import logger
 from core.utils.enums import OrderStatus
 import asyncpg

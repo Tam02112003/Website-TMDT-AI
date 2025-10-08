@@ -11,7 +11,6 @@ class OrderStatus(str, Enum):
 class PaymentMethod(str, Enum):
     COD = "cod"
     MOMO = "momo"
-    VNPAY = "vnpay"
     SEPAY = "sepay"
 
 class ChatbotSessionTime(int, Enum):

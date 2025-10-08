@@ -172,12 +172,6 @@ class CODOrderCreate(BaseModel):
     items: List[OrderItemRequest]
     total_amount: float
 
-class VNPayPaymentRequest(BaseModel):
-    order_id: str
-    amount: int  # Amount in VND, should be an integer (e.g., 100000 for 100,000 VND)
-    order_desc: str = "Thanh toan don hang"
-    bank_code: Optional[str] = None # Optional bank code for direct payment
-    language: str = "vn" # 'vn' for Vietnamese, 'en' for English
 
 class SepayPaymentRequest(BaseModel):
     order_id: str
