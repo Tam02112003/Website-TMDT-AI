@@ -67,18 +67,21 @@ async def sepay_webhook(request: Request, db: asyncpg.Connection = Depends(get_d
         payload = await request.json()
         logger.info(f"Received Sepay webhook: {payload}")
 
+        # Sepay's webhook description contains the order code but strips the hyphen.
+        # e.g., 'BankAPINotify ORDE16F8862' for our order 'ORD-E16F8862'.
         description = payload.get("description", "")
-        # Use regex to reliably find the order code in the description string
-        order_id_match = re.search(r'(ORD-[A-F0-9]+)', description)
+        order_id_match = re.search(r'ORD([A-F0-9]+)', description)
 
         if order_id_match:
-            order_id = order_id_match.group(1)
-            logger.info(f"Extracted Order ID {order_id} from webhook. Updating status.")
-            await crud_payment.update_order_payment_status(db, order_id, OrderStatus.PAID)
+            # Reconstruct the original order_code with the hyphen
+            order_code_suffix = order_id_match.group(1)
+            reconstructed_order_id = f"ORD-{order_code_suffix}"
+            
+            logger.info(f"Extracted and reconstructed Order ID {reconstructed_order_id}. Updating status.")
+            await crud_payment.update_order_payment_status(db, reconstructed_order_id, OrderStatus.PAID)
             return {"status": "success"}
         else:
             logger.warning(f"Could not extract a valid Order ID from Sepay webhook description: {description}")
-            # Acknowledge receipt to Sepay but log that we couldn't process it.
             return {"status": "error", "reason": "Order ID not found in description"}
 
     except Exception as e:
