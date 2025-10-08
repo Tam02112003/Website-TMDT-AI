@@ -42,6 +42,22 @@ async def get_order_by_code(order_code: str, db=Depends(database.get_db), curren
 
     return order
 
+@router.get("/{order_code}/status")
+async def get_order_status(order_code: str, db=Depends(database.get_db), current_user: dict = Depends(log_activity)):
+    user = await get_user_by_email(db, current_user['sub'])
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    order = await crud_order.get_order_by_code(db, order_code)
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Order with code {order_code} not found")
+
+    # Ensure the user is requesting their own order, or is an admin
+    if order.user_id != user['id'] and not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Not authorized to view this order status")
+
+    return {"status": order.status}
+
 @router.put("/status")
 async def update_order_status(data: OrderStatusUpdateRequest, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
     # Only admins can update order status

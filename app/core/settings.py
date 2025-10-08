@@ -119,8 +119,10 @@ class VNPaySettings(BaseSettings):
 
 class SepaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEPAY_")
+    API_URL: str = "https://my.sepay.vn/api/v1"
     API_TOKEN: SecretStr
-    WEBHOOK_SECRET: SecretStr
+    BANK_NAME: str = "TPBank"
+    ACCOUNT_NUMBER: str = "08626123398"
 
 class SmtpSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SMTP_")
@@ -185,6 +187,9 @@ class Settings:
             self.LOCAL_LLM = LocalLLMSettings()
             self.CLOUDINARY = CloudinarySettings()
             self.FRONTEND = FrontendSettings()
+
+            # Dynamically set the VNPAY return URL
+            self.VNPAY.RETURN_URL = f"{self.FRONTEND.URL}/order-result"
 
             # Mark as initialized
             Settings._initialized = True
