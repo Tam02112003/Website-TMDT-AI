@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+import re
 from schemas import schemas
 from crud import sepay as sepay_crud, payment as crud_payment, order as crud_order  # Import crud_order
 from core.pkgs.database import get_db
@@ -57,30 +58,28 @@ async def sepay_webhook(request: Request, db: asyncpg.Connection = Depends(get_d
     """
     Handles incoming webhooks from Sepay.
     """
-    # 1. Verify the API Key
     authorization_header = request.headers.get("Authorization")
     if not sepay_crud.verify_api_key(authorization_header):
         logger.warning("Invalid Sepay webhook API key.")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
 
-    # 2. Process the payload
     try:
         payload = await request.json()
         logger.info(f"Received Sepay webhook: {payload}")
 
-        # Assuming 'content' from Sepay maps to our 'order_id' based on the QR code generation
-        order_id = payload.get("content")
-        
-        # The documentation doesn't specify a success status field.
-        # We'll assume a valid webhook for an order means it's paid.
-        # A more robust implementation would check a specific status field if available.
-        if order_id:
-            logger.info(f"Sepay payment successful for Order ID: {order_id}. Updating status.")
+        description = payload.get("description", "")
+        # Use regex to reliably find the order code in the description string
+        order_id_match = re.search(r'(ORD-[A-F0-9]+)', description)
+
+        if order_id_match:
+            order_id = order_id_match.group(1)
+            logger.info(f"Extracted Order ID {order_id} from webhook. Updating status.")
             await crud_payment.update_order_payment_status(db, order_id, OrderStatus.PAID)
             return {"status": "success"}
         else:
-            logger.warning(f"Sepay webhook received without a referenceCode: {payload}")
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing referenceCode in payload")
+            logger.warning(f"Could not extract a valid Order ID from Sepay webhook description: {description}")
+            # Acknowledge receipt to Sepay but log that we couldn't process it.
+            return {"status": "error", "reason": "Order ID not found in description"}
 
     except Exception as e:
         logger.error(f"Error processing Sepay webhook: {e}", exc_info=True)
