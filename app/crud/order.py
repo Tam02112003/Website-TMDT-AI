@@ -11,6 +11,7 @@ from core.email_sender import send_email
 from crud.user import get_user_by_id
 from crud.product import get_product_by_id
 from starlette.concurrency import run_in_threadpool
+from core.app_config import logger
 
 async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_id: int) -> str:
     # Generate a unique, human-friendly order code
@@ -162,6 +163,7 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
     if user_id:
         user = await get_user_by_id(db, user_id)
         if user and user.get('email'):
+            logger.info(f"Attempting to send Sepay payment confirmation email to {user.get('email')} for order {order_code}")
             subject = f"Order Confirmation #{order_code}"
             message = f"Dear {user.get('username')},\n\nYour payment for order {order_code} was successful.\n\nThank you for your purchase!"
             await send_email(user.get('email'), subject, message)

@@ -102,16 +102,6 @@ class KafkaSettings(BaseSettings):
     SASL_PASSWORD: SecretStr | None = None
     LOG_LEVEL: str = "ERROR"
 
-class MomoSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="MOMO_")
-    ENDPOINT: str = 'https://test-payment.momo.vn/v2/gateway/api/create'
-    PARTNER_CODE: str
-    ACCESS_KEY: SecretStr
-    SECRET_KEY: SecretStr
-    RETURN_URL: str = 'http://localhost:8000/payment/momo/callback'
-
-
-
 class SepaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEPAY_")
     API_URL: str = "https://my.sepay.vn/api/v1"
@@ -149,6 +139,10 @@ class FrontendSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="FRONTEND_")
     URL: str = "http://localhost:5173"
 
+class SendGridSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SENDGRID_")
+    API_KEY: SecretStr
+
 
 # Main Settings Class (adapted from docs/Settings.py)
 class Settings:
@@ -174,7 +168,6 @@ class Settings:
             self.RAPID_API = RapidAPISettings()
             self.REDIS = RedisSettings()
             self.KAFKA = KafkaSettings()
-            self.MOMO = MomoSettings()
 
             self.SEPAY = SepaySettings()
             self.SMTP = SmtpSettings()
@@ -182,6 +175,7 @@ class Settings:
             self.LOCAL_LLM = LocalLLMSettings()
             self.CLOUDINARY = CloudinarySettings()
             self.FRONTEND = FrontendSettings()
+            self.SENDGRID = SendGridSettings()
 
             # Mark as initialized
             Settings._initialized = True
