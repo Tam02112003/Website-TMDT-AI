@@ -68,8 +68,8 @@ async def sepay_webhook(request: Request, db: asyncpg.Connection = Depends(get_d
         payload = await request.json()
         logger.info(f"Received Sepay webhook: {payload}")
 
-        # Assuming 'referenceCode' from Sepay maps to our 'order_id'
-        order_id = payload.get("referenceCode")
+        # Assuming 'content' from Sepay maps to our 'order_id' based on the QR code generation
+        order_id = payload.get("content")
         
         # The documentation doesn't specify a success status field.
         # We'll assume a valid webhook for an order means it's paid.
