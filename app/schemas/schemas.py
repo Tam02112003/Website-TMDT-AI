@@ -214,6 +214,7 @@ class OrderItem(BaseModel):
     quantity: int
     price: float
     image_urls: Optional[List[str]] = None
+    product_name: Optional[str] = None # Added product_name
 
 class Order(BaseModel):
     id: int

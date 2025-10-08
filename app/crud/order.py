@@ -12,6 +12,7 @@ from crud.user import get_user_by_id
 from crud.product import get_product_by_id
 from starlette.concurrency import run_in_threadpool
 from core.app_config import logger
+from datetime import datetime
 
 async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_id: int) -> str:
     # Generate a unique, human-friendly order code
@@ -69,8 +70,26 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
         user = await get_user_by_id(db, user_id)
         if user and user.get('email'):
             subject = f"Order Confirmation #{order_code}"
-            message = f"Dear {user.get('username')},\n\nYour order {order_code} has been placed successfully and is awaiting processing.\n\nThank you for your purchase!"
-            await run_in_threadpool(send_email, user.get('email'), subject, message)
+
+            # Prepare items with product names for the email
+            items_for_email = []
+            for item_request in data.items:
+                product = await get_product_by_id(db, item_request.product_id)
+                item_data = item_request.model_dump()
+                item_data['product_name'] = product.name if product else "Unknown Product"
+                items_for_email.append(item_data)
+
+            order_details = {
+                "user_name": user.get('username'),
+                "order_code": order_code,
+                "total_amount": calculated_total_amount,
+                "payment_method": data.payment_method.value,
+                "order_status": status.value,
+                "shipping_address": data.shipping_address.model_dump(),
+                "items": items_for_email,
+                "order_date": datetime.now() # Add current timestamp for order date
+            }
+            await run_in_threadpool(send_email, user.get('email'), subject, order_details)
 
     return order_code
 
@@ -165,8 +184,29 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
         if user and user.get('email'):
             logger.info(f"Attempting to send Sepay payment confirmation email to {user.get('email')} for order {order_code}")
             subject = f"Order Confirmation #{order_code}"
-            message = f"Dear {user.get('username')},\n\nYour payment for order {order_code} was successful.\n\nThank you for your purchase!"
-            await send_email(user.get('email'), subject, message)
+
+            # Fetch full order details for the email template
+            full_order = await get_order_by_code(db, order_code)
+            if full_order:
+                order_details = {
+                    "user_name": user.get('username'),
+                    "order_code": full_order.order_code,
+                    "total_amount": full_order.total_amount,
+                    "payment_method": full_order.payment_method,
+                    "order_status": full_order.status,
+                    "shipping_address": {
+                        "address": full_order.shipping_address,
+                        "city": full_order.shipping_city,
+                        "postal_code": full_order.shipping_postal_code,
+                        "country": full_order.shipping_country,
+                        "phone_number": full_order.shipping_phone_number
+                    },
+                    "items": [item.model_dump() for item in full_order.items],
+                    "order_date": full_order.created_at # Use created_at from the fetched order
+                }
+                await send_email(user.get('email'), subject, order_details)
+            else:
+                logger.error(f"Could not fetch full order details for email for order {order_code}")
 
     return True
 
