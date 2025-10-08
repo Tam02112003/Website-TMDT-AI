@@ -12,8 +12,7 @@ import json
 from core.kafka.kafka_client import producer
 from datetime import datetime
 from typing import Optional
-from core.dependencies import log_activity # Import log_activity for authentication
-from crud.user import get_user_by_email, require_admin # Import for user and admin checks
+from core.dependencies import log_activity
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -123,7 +122,8 @@ async def update_product_comment(
     if not existing_comment:
         raise HTTPException(status_code=404, detail="Comment not found")
 
-        if existing_comment.user_name != current_user.get('username') and not current_user.get('is_admin'):        raise HTTPException(status_code=403, detail="Not authorized to update this comment")
+    if existing_comment.user_name != current_user.get('username') and not current_user.get('is_admin'):
+        raise HTTPException(status_code=403, detail="Not authorized to update this comment")
 
     updated_comment = await product_crud.update_comment(db, comment_id, comment_update.content)
     if not updated_comment:

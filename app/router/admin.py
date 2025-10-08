@@ -103,7 +103,7 @@ async def create_product_endpoint(product: ProductCreate, db=Depends(database.ge
 
 @router.get("/products", summary="Get all products (Admin Only)")
 async def get_all_products_endpoint(search: Optional[str] = None, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
-    all_products = await crud_product.get_all_products(db, search_query=search)
+    all_products = await crud_product.get_products(db, search_query=search)
     return all_products
 
 @router.get("/products/deleted", summary="Get all deleted products (Admin Only)")
