@@ -179,6 +179,15 @@ class VNPayPaymentRequest(BaseModel):
     bank_code: Optional[str] = None # Optional bank code for direct payment
     language: str = "vn" # 'vn' for Vietnamese, 'en' for English
 
+class SepayPaymentRequest(BaseModel):
+    order_id: str
+    amount: int
+
+class SepayPaymentResponse(BaseModel):
+    id: str
+    referenceCode: str
+    paymentUrl: Optional[str] = None
+
 class AINewsGenerateRequest(BaseModel):
     topic: str
     keywords: Optional[str] = None
