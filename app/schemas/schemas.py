@@ -222,6 +222,7 @@ class Order(BaseModel):
     user_id: int
     total_amount: float
     status: str
+    payment_method: PaymentMethod
     created_at: datetime
     items: List[OrderItem]
     shipping_address: Optional[str]
