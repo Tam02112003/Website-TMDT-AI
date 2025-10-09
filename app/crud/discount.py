@@ -29,8 +29,24 @@ def to_vietnam_aware(dt: Optional[datetime]) -> Optional[datetime]:
         return VIETNAM_TZ.localize(dt)
     return dt.astimezone(VIETNAM_TZ)
 
-async def get_discounts(db: asyncpg.Connection, skip: int = 0, limit: int = 100) -> List[schemas.Discount]:
-    rows = await db.fetch("SELECT id, name, percent, start_date, end_date, product_id, is_active FROM discounts WHERE is_active=TRUE AND start_date <= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp AND end_date >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp ORDER BY id OFFSET $1 LIMIT $2", skip, limit)
+async def get_discounts(db: asyncpg.Connection, skip: int = 0, limit: int = 100, is_active: Optional[bool] = None, include_expired: bool = False) -> List[schemas.Discount]:
+    query = "SELECT id, name, percent, start_date, end_date, product_id, is_active FROM discounts WHERE 1=1"
+    params = []
+    param_count = 1
+
+    if is_active is not None:
+        query += f" AND is_active = ${param_count}"
+        params.append(is_active)
+        param_count += 1
+
+    if not include_expired:
+        query += f" AND start_date <= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp AND end_date >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp"
+    
+    query += f" ORDER BY id OFFSET ${param_count} LIMIT ${param_count + 1}"
+    params.append(skip)
+    params.append(limit)
+
+    rows = await db.fetch(query, *params)
     return [schemas.Discount(
         id=row["id"], name=row["name"], percent=row["percent"], start_date=to_vietnam_aware(row["start_date"]), end_date=to_vietnam_aware(row["end_date"]), product_id=row["product_id"], is_active=row["is_active"]
     ) for row in rows]

@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
@@ -12,12 +13,22 @@ import json
 router = APIRouter(prefix="/discounts", tags=["discounts"])
 
 @router.get("/", response_model=list[schemas.Discount])
-async def read_discounts(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), redis_client: Redis = Depends(get_redis_client)):
-    cache_key = f"discounts:{skip}:{limit}"
+async def read_discounts(skip: int = 0, limit: int = 100, is_active: Optional[bool] = None, db: Session = Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), user=Depends(require_admin)):
+    cache_key = f"discounts:{skip}:{limit}:{is_active}"
     cached = await redis_client.get(cache_key)
     if cached:
         return [schemas.Discount(**p) for p in json.loads(cached)]
-    result = await discount.get_discounts(db, skip=skip, limit=limit)
+    result = await discount.get_discounts(db, skip=skip, limit=limit, is_active=is_active, include_expired=True) # Admin can see all, including expired
+    await redis_client.setex(cache_key, 60, json.dumps([r.model_dump(mode='json') for r in result]))
+    return result
+
+@router.get("/active", response_model=list[schemas.Discount])
+async def read_active_discounts(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db), redis_client: Redis = Depends(get_redis_client)):
+    cache_key = f"active_discounts:{skip}:{limit}"
+    cached = await redis_client.get(cache_key)
+    if cached:
+        return [schemas.Discount(**p) for p in json.loads(cached)]
+    result = await discount.get_discounts(db, skip=skip, limit=limit, is_active=True, include_expired=False)
     await redis_client.setex(cache_key, 60, json.dumps([r.model_dump(mode='json') for r in result]))
     return result
 
