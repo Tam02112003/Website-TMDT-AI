@@ -174,10 +174,8 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
         await update_order_status(db, status_update)
         return False
 
-    # The status update to PAID is now handled by crud_payment.update_order_payment_status
-    # This function focuses on email sending and other post-payment logic.
-    # status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAID)
-    # await update_order_status(db, status_update)
+    status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAID)
+    await update_order_status(db, status_update)
     print(f"Payment successful for order {order_code}. Status updated to 'paid'.")
 
     user_id = order.get('user_id')
