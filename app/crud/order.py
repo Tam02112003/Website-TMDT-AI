@@ -164,12 +164,12 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
         print(f"Webhook Error: Order with code {order_code} not found.")
         return False
 
-    if order.get('status') != OrderStatus.PENDING:
-        print(f"Webhook Info: Order {order_code} already processed. Current status: {order.get('status')}")
+    if order.status != OrderStatus.PENDING:
+        print(f"Webhook Info: Order {order_code} already processed. Current status: {order.status}")
         return True
 
-    if int(order.get('total_amount')) != amount:
-        print(f"Webhook Error: Amount mismatch for order {order_code}. Expected {order.get('total_amount')}, got {amount}")
+    if int(order.total_amount) != amount:
+        print(f"Webhook Error: Amount mismatch for order {order_code}. Expected {order.total_amount}, got {amount}")
         status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAYMENT_ERROR)
         await update_order_status(db, status_update)
         return False
@@ -178,7 +178,7 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
     await update_order_status(db, status_update)
     print(f"Payment successful for order {order_code}. Status updated to 'paid'.")
 
-    user_id = order.get('user_id')
+    user_id = order.user_id
     if user_id:
         user = await get_user_by_id(db, user_id)
         logger.info(f"User found for order {order_code}: {user is not None}. User email: {user.get('email') if user else 'N/A'}")
