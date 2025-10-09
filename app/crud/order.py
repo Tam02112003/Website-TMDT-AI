@@ -13,6 +13,17 @@ from crud.product import get_product_by_id
 from starlette.concurrency import run_in_threadpool
 from core.app_config import logger
 from datetime import datetime
+import pytz
+
+VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
+
+def to_vietnam_aware(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Assume naive datetimes from DB are in Vietnam local time
+        return VIETNAM_TZ.localize(dt)
+    return dt.astimezone(VIETNAM_TZ)
 
 async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_id: int) -> str:
     # Generate a unique, human-friendly order code
@@ -87,7 +98,7 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
                 "order_status": status.value,
                 "shipping_address": data.shipping_address.model_dump(),
                 "items": items_for_email,
-                "order_date": datetime.now() # Add current timestamp for order date
+                "order_date": VIETNAM_TZ.localize(datetime.now()) # Add current timestamp for order date, localized to Vietnam TZ
             }
             await run_in_threadpool(send_email, user.get('email'), subject, order_details)
 
@@ -139,7 +150,7 @@ async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional
         user_id=order_row['user_id'],
         total_amount=order_row['total_amount'],
         status=order_row['status'],
-        created_at=order_row['created_at'],
+        created_at=to_vietnam_aware(order_row['created_at']),
         items=order_items,
         shipping_address=order_row['shipping_address'],
         shipping_city=order_row['shipping_city'],
@@ -181,7 +192,6 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
     user_id = order.user_id
     if user_id:
         user = await get_user_by_id(db, user_id)
-        logger.info(f"User found for order {order_code}: {user is not None}. User email: {user.get('email') if user else 'N/A'}")
         if user and user.get('email'):
             logger.info(f"Attempting to send Sepay payment confirmation email to {user.get('email')} for order {order_code}")
             subject = f"Order Confirmation #{order_code}"
