@@ -181,6 +181,7 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
     user_id = order.get('user_id')
     if user_id:
         user = await get_user_by_id(db, user_id)
+        logger.info(f"User found for order {order_code}: {user is not None}. User email: {user.get('email') if user else 'N/A'}")
         if user and user.get('email'):
             logger.info(f"Attempting to send Sepay payment confirmation email to {user.get('email')} for order {order_code}")
             subject = f"Order Confirmation #{order_code}"
