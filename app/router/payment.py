@@ -73,8 +73,9 @@ async def sepay_webhook(request: Request, db: asyncpg.Connection = Depends(get_d
             order_code_suffix = order_id_match.group(1)
             reconstructed_order_id = f"ORD-{order_code_suffix}"
             
-            logger.info(f"Extracted and reconstructed Order ID {reconstructed_order_id}. Updating status.")
-            await crud_payment.update_order_payment_status(db, reconstructed_order_id, OrderStatus.PAID)
+            logger.info(f"Extracted and reconstructed Order ID {reconstructed_order_id}. Processing Sepay payment.")
+            # Call the full Sepay payment processing logic which includes email sending
+            await crud_order.process_sepay_payment(db, reconstructed_order_id, payload.get("transferAmount"))
             return {"status": "success"}
         else:
             logger.warning(f"Could not extract a valid Order ID from Sepay webhook description: {description}")

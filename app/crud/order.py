@@ -153,7 +153,7 @@ async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional
 async def update_order_status(db: asyncpg.Connection, data: OrderStatusUpdateRequest):
     await db.execute("UPDATE orders SET status = $1 WHERE order_code = $2", data.status.value, data.order_code)
 
-async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount: float) -> bool:
+async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount: int) -> bool:
     """
     Processes a payment notification from Sepay.
     Returns True if payment is successful and updated, False otherwise.
@@ -168,14 +168,16 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
         print(f"Webhook Info: Order {order_code} already processed. Current status: {order.get('status')}")
         return True
 
-    if float(order.get('total_amount')) != amount:
+    if int(order.get('total_amount')) != amount:
         print(f"Webhook Error: Amount mismatch for order {order_code}. Expected {order.get('total_amount')}, got {amount}")
         status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAYMENT_ERROR)
         await update_order_status(db, status_update)
         return False
 
-    status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAID)
-    await update_order_status(db, status_update)
+    # The status update to PAID is now handled by crud_payment.update_order_payment_status
+    # This function focuses on email sending and other post-payment logic.
+    # status_update = OrderStatusUpdateRequest(order_code=order_code, status=OrderStatus.PAID)
+    # await update_order_status(db, status_update)
     print(f"Payment successful for order {order_code}. Status updated to 'paid'.")
 
     user_id = order.get('user_id')
