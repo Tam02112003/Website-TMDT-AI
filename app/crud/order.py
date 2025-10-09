@@ -114,7 +114,7 @@ async def get_orders_by_user(db: asyncpg.Connection, user_id: int, search: Optio
     return [dict(order) for order in orders]
 
 async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional[schemas.Order]:
-    order_row = await db.fetchrow("SELECT * FROM orders WHERE order_code = $1", order_code)
+    order_row = await db.fetchrow("SELECT id, order_code, user_id, total_amount, status, created_at, shipping_address, shipping_city, shipping_postal_code, shipping_country, payment_method, shipping_phone_number FROM orders WHERE order_code = $1", order_code)
     if not order_row:
         return None
     
@@ -150,6 +150,7 @@ async def get_order_by_code(db: asyncpg.Connection, order_code: str) -> Optional
         user_id=order_row['user_id'],
         total_amount=order_row['total_amount'],
         status=order_row['status'],
+        payment_method=order_row['payment_method'],
         created_at=to_vietnam_aware(order_row['created_at']),
         items=order_items,
         shipping_address=order_row['shipping_address'],
