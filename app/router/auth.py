@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse, JSONResponse
+import asyncpg
 from starlette.requests import Request
 import httpx
 import jwt
@@ -8,27 +9,11 @@ from core.pkgs import database
 from crud import user
 from schemas.schemas import RegisterRequest, LoginRequest
 from core.settings import settings
-from core.redis.redis_client import get_redis_client
-import asyncpg
 from core.kafka.kafka_client import producer
 import json
-from core.utils.enums import RATE_LIMIT
+from core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-async def rate_limit(request: Request):
-    redis_client = await get_redis_client()
-    ip_address = request.client.host
-    endpoint = request.url.path
-    key = f"rate_limit:{ip_address}:{endpoint}"
-
-    current_requests = await redis_client.incr(key)
-    if current_requests == 1:
-        await redis_client.expire(key, RATE_LIMIT.RATE_LIMIT_WINDOW.value)
-
-    if current_requests > RATE_LIMIT.RATE_LIMIT_MAX_REQUESTS.value:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many requests. Please try again later.")
 
 @router.get("/login/google")
 async def login_google():
@@ -93,7 +78,8 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
     return RedirectResponse(url=frontend_url)
 
 
-@router.post("/register", dependencies=[Depends(rate_limit)])
+@router.post("/register")
+@limiter.limit("5/minute")
 async def register(data: RegisterRequest, request: Request, db: asyncpg.Connection = Depends(database.get_db)):
     new_user = await user.register_user(db, data.email, data.username, data.password)
 
@@ -109,7 +95,8 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
     return new_user
 
 
-@router.post("/login", dependencies=[Depends(rate_limit)])
+@router.post("/login")
+@limiter.limit("5/minute")
 async def login_local(data: LoginRequest, request: Request, db: asyncpg.Connection = Depends(database.get_db)):
     user_row = await user.authenticate_user(db, data.email, data.password)
     if not user_row:

@@ -4,7 +4,6 @@ from schemas.schemas import OrderCreate, OrderStatusUpdateRequest # Removed Orde
 from crud import order as crud_order
 from core.dependencies import log_activity
 from crud.user import get_user_by_email, require_admin
-
 from schemas import schemas
 
 router = APIRouter(prefix="/orders", tags=["order"])

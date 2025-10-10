@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response, HTTPException
+from fastapi import APIRouter, Response, HTTPException, Request
 from pydantic import BaseModel
 import requests
 import base64
@@ -6,6 +6,7 @@ from io import BytesIO
 
 from core.app_config import logger
 from core.settings import settings
+from core.limiter import limiter  # Import the limiter
 
 class TryOnRequest(BaseModel):
     product_image_url: str
@@ -14,18 +15,19 @@ class TryOnRequest(BaseModel):
 router = APIRouter(prefix="/tryon", tags=["tryon"])
 
 @router.post("/")
-async def tryon_endpoint(request: TryOnRequest):
+@limiter.limit("5/minute")  # Apply the rate limit
+async def tryon_endpoint(tryon_req: TryOnRequest, request: Request):
     # Decode base64 user image
     try:
         # Remove data:image/jpeg;base64, prefix if present
-        header, base64_string = request.user_image_base64.split(',', 1) if ',' in request.user_image_base64 else ('', request.user_image_base64)
+        header, base64_string = tryon_req.user_image_base64.split(',', 1) if ',' in tryon_req.user_image_base64 else ('', tryon_req.user_image_base64)
         user_image_bytes = base64.b64decode(base64_string)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid base64 image: {e}")
 
     url = "https://try-on-diffusion.p.rapidapi.com/try-on-file"
     files = {
-        "clothing_image": ("product_image.jpeg", BytesIO(requests.get(request.product_image_url).content), 'image/jpeg'),
+        "clothing_image": ("product_image.jpeg", BytesIO(requests.get(tryon_req.product_image_url).content), 'image/jpeg'),
         "avatar_image": ("user_avatar.jpeg", BytesIO(user_image_bytes), 'image/jpeg')
     }
     data = {}

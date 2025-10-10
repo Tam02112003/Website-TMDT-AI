@@ -1,14 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from core.app_config import settings, logger, get_printable_settings
 from core.middleware import setup_middleware
 from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user, brand, category
-
+from core.limiter import limiter
 from core.kafka.kafka_client import close_kafka_producer
 from core.kafka.kafka_admin import create_topics_if_needed
 
 app = FastAPI()
+
+# Add state and exception handler for slowapi
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 @app.on_event("startup")
 async def startup_event():
@@ -21,13 +28,17 @@ async def startup_event():
 def shutdown_event():
     close_kafka_producer()
 
-# Setup middleware
+# Add slowapi middleware
+app.add_middleware(SlowAPIMiddleware)
+
+# Setup other middleware
 setup_middleware(app)
 
 # Cho phép CORS nếu cần cho frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "https://front-end-website-tmdt-ai.onrender.com"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
