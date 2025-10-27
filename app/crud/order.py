@@ -4,7 +4,8 @@ import json
 from typing import List, Optional
 from fastapi import HTTPException
 from core.utils.enums import OrderStatus, PaymentMethod
-from core.kafka.kafka_client import producer
+from core.aws.sns_client import sns_client
+from core.settings import settings
 from schemas import schemas
 from schemas.schemas import OrderStatusUpdateRequest
 from core.email_sender import send_email
@@ -74,7 +75,11 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
         "items": [item.model_dump() for item in data.items],
         "shipping_address": data.shipping_address.model_dump()
     }
-    producer.send('order_events', json.dumps(event).encode('utf-8'))
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_ORDER_EVENTS_TOPIC_ARN, # Placeholder, to be added to settings
+        message=json.dumps(event),
+        subject="OrderCreated"
+    )
 
     # Send email confirmation for COD orders immediately
     if data.payment_method == PaymentMethod.COD:

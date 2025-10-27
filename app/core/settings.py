@@ -93,14 +93,18 @@ class RedisSettings(BaseSettings):
     DB: int = 0
     PASSWORD: SecretStr
 
-class KafkaSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="KAFKA_")
-    BOOTSTRAP_SERVERS: str = 'localhost:9092'
-    SECURITY_PROTOCOL: str | None = None
-    SASL_MECHANISM: str | None = None
-    SASL_USERNAME: str | None = None
-    SASL_PASSWORD: SecretStr | None = None
-    LOG_LEVEL: str = "ERROR"
+class AWSSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="AWS_")
+    REGION: str = "ap-southeast-1"
+    ACCESS_KEY_ID: str
+    SECRET_ACCESS_KEY: SecretStr
+    SNS_USER_ACTIVITY_TOPIC_ARN: str
+    SNS_ORDER_EVENTS_TOPIC_ARN: str
+    SNS_AUTH_EVENTS_TOPIC_ARN: str
+    SNS_DISCOUNT_EVENTS_TOPIC_ARN: str
+    SNS_NEWS_EVENTS_TOPIC_ARN: str
+    SNS_PRODUCT_EVENTS_TOPIC_ARN: str
+    SQS_USER_ACTIVITY_QUEUE_URL: str
 
 class SepaySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SEPAY_")
@@ -167,7 +171,7 @@ class Settings:
             self.JWT = JwtSettings()
             self.RAPID_API = RapidAPISettings()
             self.REDIS = RedisSettings()
-            self.KAFKA = KafkaSettings()
+            self.AWS = AWSSettings()
 
             self.SEPAY = SepaySettings()
             self.SMTP = SmtpSettings()

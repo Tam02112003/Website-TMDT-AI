@@ -4,29 +4,30 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from contextlib import asynccontextmanager
 from core.app_config import settings, logger, get_printable_settings
 from core.middleware import setup_middleware
 from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user, brand, category
 from core.limiter import limiter
-from core.kafka.kafka_client import close_kafka_producer
-from core.kafka.kafka_admin import create_topics_if_needed
+from core.aws.setup import setup_aws_resources
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # On startup
+    logger.info("--- Application Starting Up ---")
+    logger.info("--- Application Settings Loaded ---")
+    logger.info(f"\n{get_printable_settings(settings)}")
+    logger.info("---------------------------------")
+    await setup_aws_resources()
+    yield
+    # On shutdown
+    logger.info("--- Application Shutting Down ---")
+
+app = FastAPI(lifespan=lifespan)
 
 # Add state and exception handler for slowapi
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("--- Application Settings Loaded ---")
-    logger.info(f"\n{get_printable_settings(settings)}")
-    logger.info("---------------------------------")
-    await create_topics_if_needed()
-
-@app.on_event("shutdown")
-def shutdown_event():
-    close_kafka_producer()
 
 # Add slowapi middleware
 app.add_middleware(SlowAPIMiddleware)

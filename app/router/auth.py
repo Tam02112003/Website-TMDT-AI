@@ -9,7 +9,7 @@ from core.pkgs import database
 from crud import user
 from schemas.schemas import RegisterRequest, LoginRequest
 from core.settings import settings
-from core.kafka.kafka_client import producer
+from core.aws.sns_client import sns_client
 import json
 from core.limiter import limiter
 
@@ -64,14 +64,18 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
     }
     token = jwt.encode(payload, settings.JWT.SECRET.get_secret_value(), algorithm="HS256")
 
-    # Publish Kafka event for successful Google OAuth callback
+    # Publish SNS event for successful Google OAuth callback
     event_data = {
         "user_email": email,
         "event_type": "google_oauth_success",
         "timestamp": datetime.now().isoformat(),
         "ip_address": request.client.host
     }
-    producer.send("auth_events", json.dumps(event_data).encode('utf-8'))
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_AUTH_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="GoogleOAuthSuccess"
+    )
 
     # Redirect to frontend with token
     frontend_url = f"{settings.FRONTEND.URL}/auth/google/callback?token={token}"
@@ -83,14 +87,18 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
 async def register(data: RegisterRequest, request: Request, db: asyncpg.Connection = Depends(database.get_db)):
     new_user = await user.register_user(db, data.email, data.username, data.password)
 
-    # Publish Kafka event for successful registration
+    # Publish SNS event for successful registration
     event_data = {
         "user_email": data.email,
         "event_type": "user_registered",
         "timestamp": datetime.now().isoformat(),
         "ip_address": request.client.host
     }
-    producer.send("auth_events", json.dumps(event_data).encode('utf-8'))
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_AUTH_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="UserRegistered"
+    )
 
     return new_user
 
@@ -100,14 +108,18 @@ async def register(data: RegisterRequest, request: Request, db: asyncpg.Connecti
 async def login_local(data: LoginRequest, request: Request, db: asyncpg.Connection = Depends(database.get_db)):
     user_row = await user.authenticate_user(db, data.email, data.password)
     if not user_row:
-        # Publish Kafka event for failed login
+        # Publish SNS event for failed login
         event_data = {
             "user_email": data.email,
             "event_type": "login_failed",
             "timestamp": datetime.now().isoformat(),
             "ip_address": request.client.host
         }
-        producer.send("auth_events", json.dumps(event_data).encode('utf-8'))
+        sns_client.publish_message(
+            topic_arn=settings.AWS.SNS_AUTH_EVENTS_TOPIC_ARN, 
+            message=json.dumps(event_data), 
+            subject="LoginFailed"
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     payload = {
@@ -119,13 +131,17 @@ async def login_local(data: LoginRequest, request: Request, db: asyncpg.Connecti
     }
     token = jwt.encode(payload, settings.JWT.SECRET.get_secret_value(), algorithm="HS256")
 
-    # Publish Kafka event for successful login
+    # Publish SNS event for successful login
     event_data = {
         "user_email": data.email,
         "event_type": "login_success",
         "timestamp": datetime.now().isoformat(),
         "ip_address": request.client.host
     }
-    producer.send("auth_events", json.dumps(event_data).encode('utf-8'))
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_AUTH_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="LoginSuccess"
+    )
 
     return {"access_token": token, "token_type": "bearer"}
