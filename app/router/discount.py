@@ -7,7 +7,8 @@ from crud import discount
 from core.pkgs import database
 from crud.user import require_admin
 from core.redis.redis_client import get_redis_client
-from core.kafka.kafka_client import producer
+from core.aws.sns_client import sns_client
+from core.settings import settings
 import json
 
 router = APIRouter(prefix="/discounts", tags=["discounts"])
@@ -43,7 +44,12 @@ async def read_discount(discount_id: int, db: Session = Depends(database.get_db)
 @router.post("/", response_model=schemas.Discount)
 async def create_discount(discount_data: schemas.DiscountCreate, db: Session = Depends(database.get_db), user=Depends(require_admin)):
     result = await discount.create_discount(db, discount_data)
-    producer.send('discounts', json.dumps({"action": "create", "name": discount_data.name, "user": user.get("username")}).encode())
+    event_data = {"action": "create", "name": discount_data.name, "user": user.get("username")}
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_DISCOUNT_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="DiscountCreated"
+    )
     return result
 
 @router.put("/{discount_id}", response_model=schemas.Discount)

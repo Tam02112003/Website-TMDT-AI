@@ -9,7 +9,8 @@ from services.RecommendationService import get_recommendations
 from core.app_config import logger
 from core.redis.redis_client import get_redis_client
 import json
-from core.kafka.kafka_client import producer
+from core.aws.sns_client import sns_client
+from core.settings import settings
 from datetime import datetime
 from typing import Optional
 from core.dependencies import log_activity
@@ -24,15 +25,19 @@ async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection 
     if new_product is None:
         raise HTTPException(status_code=500, detail="Failed to create product")
 
-    # Publish Kafka event for product creation
+    # Publish SNS event for product creation
     event_data = {
         "product_id": new_product.id,
         "operation_type": "create",
         "timestamp": datetime.now().isoformat(),
         "product_data": json.loads(new_product.model_dump_json())
     }
-    producer.send("product_events", json.dumps(event_data).encode('utf-8'))
-    logger.info(f"Kafka event 'product_create' sent for product_id: {new_product.id}")
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="ProductCreated"
+    )
+    logger.info(f"SNS event 'product_create' sent for product_id: {new_product.id}")
 
     return new_product
 
@@ -60,15 +65,19 @@ async def update_product(product_id: int, product: schemas.ProductUpdate, db: as
     redis_client = await get_redis_client()
     await redis_client.delete("deleted_products_cache")
 
-    # Publish Kafka event
+    # Publish SNS event
     event_data = {
         "product_id": product_id,
         "operation_type": "update",
         "timestamp": datetime.now().isoformat(),
          "new_data": json.loads(db_product.model_dump_json())
     }
-    producer.send("product_events", json.dumps(event_data).encode('utf-8'))
-    logger.info(f"Kafka event 'product_update' sent for product_id: {product_id}")
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="ProductUpdated"
+    )
+    logger.info(f"SNS event 'product_update' sent for product_id: {product_id}")
 
     return db_product
 
@@ -83,14 +92,18 @@ async def delete_product(product_id: int, db: asyncpg.Connection = Depends(get_d
     redis_client = await get_redis_client()
     await redis_client.delete("deleted_products_cache")
 
-    # Publish Kafka event
+    # Publish SNS event
     event_data = {
         "product_id": product_id,
         "operation_type": "delete",
         "timestamp": datetime.now().isoformat()
     }
-    producer.send("product_events", json.dumps(event_data).encode('utf-8'))
-    logger.info(f"Kafka event 'product_delete' sent for product_id: {product_id}")
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="ProductDeleted"
+    )
+    logger.info(f"SNS event 'product_delete' sent for product_id: {product_id}")
 
     return db_product
 

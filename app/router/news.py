@@ -8,7 +8,8 @@ from crud import news
 from core.pkgs import database
 from crud.user import require_admin
 from core.redis.redis_client import get_redis_client
-from core.kafka.kafka_client import producer
+from core.aws.sns_client import sns_client
+from core.settings import settings
 import json
 from services.NewsAIService import generate_news_content
 from schemas.schemas import AINewsGenerateRequest
@@ -36,7 +37,12 @@ async def read_news_item(news_id: int, db: Session = Depends(database.get_db)):
 @router.post("/", response_model=schemas.News)
 async def create_news(news_data: schemas.NewsCreate, db: Session = Depends(database.get_db), user=Depends(require_admin)):
     result = await news.create_news(db, news_data)
-    producer.send('news', json.dumps({"action": "create", "title": news_data.title, "user": user.get("username")}).encode())
+    event_data = {"action": "create", "title": news_data.title, "user": user.get("username")}
+    sns_client.publish_message(
+        topic_arn=settings.AWS.SNS_NEWS_EVENTS_TOPIC_ARN, 
+        message=json.dumps(event_data), 
+        subject="NewsCreated"
+    )
     return result
 
 @router.put("/{news_id}", response_model=schemas.News)
@@ -81,7 +87,12 @@ async def generate_ai_news(request_data: AINewsGenerateRequest, db: Session = De
         )
         
         created_news = await news.create_news(db, news_create_data)
-        producer.send('news', json.dumps({"action": "create_ai", "title": created_news.title, "user": user.get("username")}).encode())
+        event_data = {"action": "create_ai", "title": created_news.title, "user": user.get("username")}
+        sns_client.publish_message(
+            topic_arn=settings.AWS.SNS_NEWS_EVENTS_TOPIC_ARN, 
+            message=json.dumps(event_data), 
+            subject="AINewsCreated"
+        )
         return created_news
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate and save AI news: {e}")
