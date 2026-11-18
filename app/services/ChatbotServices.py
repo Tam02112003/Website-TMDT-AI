@@ -67,7 +67,7 @@ async def get_chatbot_response(
             }
 
             logger.debug("Sending request to LLM for SQL generation.")
-            sql_response = await client.post(settings.LOCAL_LLM.API_URL, json=sql_payload)
+            sql_response = await client.post(settings.LOCAL_LLM.API_URL, json=sql_payload, headers=settings.LOCAL_LLM.HEADERS)
             logger.info(f"Local LLM API SQL Response Status: {sql_response.status_code}")
             logger.debug(f"Local LLM API SQL Response Body: {sql_response.text}")
             sql_response.raise_for_status()
@@ -148,11 +148,11 @@ async def get_chatbot_response(
                     }
                 ] + conversation_history,
                 "temperature": 0.5,
-                "max_tokens": -1
+                "max_tokens": 1024
             }
 
             logger.debug("Sending request to LLM for natural language generation.")
-            nl_response = await client.post(settings.LOCAL_LLM.API_URL, json=nl_payload)
+            nl_response = await client.post(settings.LOCAL_LLM.API_URL, json=nl_payload, headers=settings.LOCAL_LLM.HEADERS)
             logger.info(f"Local LLM API NL Response Status: {nl_response.status_code}")
             logger.debug(f"Local LLM API NL Response Body: {nl_response.text}")
             nl_response.raise_for_status()

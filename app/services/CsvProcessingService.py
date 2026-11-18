@@ -118,7 +118,7 @@ async def process_csv_and_save(file: UploadFile, db: asyncpg.Connection):
                 "response_format": {"type": "json_object"}
             }
 
-            response = await client.post(settings.LOCAL_LLM.API_URL, json=llm_payload)
+            response = await client.post(settings.LOCAL_LLM.API_URL, json=llm_payload, headers=settings.LOCAL_LLM.HEADERS)
             response.raise_for_status()
 
             llm_response_content = response.json()["choices"][0]["message"]["content"].strip()

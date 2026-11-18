@@ -41,6 +41,14 @@ def load_env_file(file_path: str) -> None:
 
 def load_environment(env_type: str = None):
     """Load environment variables from file based on environment type"""
+    # On Vercel (and most serverless platforms), env vars are injected directly
+    # by the platform - there's no local .env file to load, and if one were
+    # accidentally bundled into the deployment, loading it here would override
+    # the real platform-provided values with stale local-dev ones.
+    if os.environ.get("VERCEL"):
+        print("Running on Vercel - skipping local .env file loading.")
+        return
+
     # Ensure dotenv is loaded for basic OS environment variables
     load_dotenv()
     if env_type is None:
@@ -131,7 +139,13 @@ class SMSSettings(BaseSettings):
 class LocalLLMSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOCAL_LLM_")
     API_URL: str
-    MODEL: str = "ai/gemma3n"
+    MODEL: str = "openai/gpt-oss-120b"
+    API_KEY: SecretStr = SecretStr("")
+
+    @property
+    def HEADERS(self) -> dict:
+        key = self.API_KEY.get_secret_value()
+        return {"Authorization": f"Bearer {key}"} if key else {}
 
 class CloudinarySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CLOUDINARY_")
@@ -146,6 +160,11 @@ class FrontendSettings(BaseSettings):
 class SendGridSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SENDGRID_")
     API_KEY: SecretStr
+
+class ResendSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="RESEND_")
+    API_KEY: SecretStr
+    FROM_EMAIL: str = "onboarding@resend.dev"
 
 
 # Main Settings Class (adapted from docs/Settings.py)
@@ -180,6 +199,7 @@ class Settings:
             self.CLOUDINARY = CloudinarySettings()
             self.FRONTEND = FrontendSettings()
             self.SENDGRID = SendGridSettings()
+            self.RESEND = ResendSettings()
 
             # Mark as initialized
             Settings._initialized = True

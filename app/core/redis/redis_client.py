@@ -7,12 +7,14 @@ _redis_client_instance: Optional[aioredis.Redis] = None
 async def get_redis_client() -> aioredis.Redis:
     global _redis_client_instance
     if _redis_client_instance is None:
+        use_tls = settings.REDIS.HOST not in ("localhost", "127.0.0.1")
         _redis_client_instance = aioredis.Redis(
             host=settings.REDIS.HOST,
             port=settings.REDIS.PORT,
             db=settings.REDIS.DB,
             password=settings.REDIS.PASSWORD.get_secret_value(),
-            decode_responses=True
+            decode_responses=True,
+            ssl=use_tls
         )
     return _redis_client_instance
 

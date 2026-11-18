@@ -23,11 +23,11 @@ async def generate_news_content(topic: str, keywords: Optional[str] = None, leng
             "model": settings.LOCAL_LLM.MODEL,
             "messages": messages,
             "temperature": 0.7, # A bit higher temperature for more creative news generation
-            "max_tokens": -1 # No limit for news length
+            "max_tokens": 2048
         }
 
         async with httpx.AsyncClient(timeout=None) as client:
-            response = await client.post(settings.LOCAL_LLM.API_URL, json=payload)
+            response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
             response.raise_for_status() # Raise an exception for HTTP errors
 
             llm_response_content = response.json()["choices"][0]["message"]["content"].strip()

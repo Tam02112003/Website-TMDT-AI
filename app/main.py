@@ -9,7 +9,6 @@ from core.app_config import settings, logger, get_printable_settings
 from core.middleware import setup_middleware
 from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user, brand, category
 from core.limiter import limiter
-from core.aws.setup import setup_aws_resources
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -18,7 +17,6 @@ async def lifespan(app: FastAPI):
     logger.info("--- Application Settings Loaded ---")
     logger.info(f"\n{get_printable_settings(settings)}")
     logger.info("---------------------------------")
-    await setup_aws_resources()
     yield
     # On shutdown
     logger.info("--- Application Shutting Down ---")
@@ -38,7 +36,11 @@ setup_middleware(app)
 # Cho phép CORS nếu cần cho frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://front-end-website-tmdt-ai.onrender.com"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://front-end-website-tmdt-ai.onrender.com",
+        "https://shop.tamnguyen.asia",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

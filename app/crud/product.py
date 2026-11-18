@@ -6,22 +6,18 @@ import json
 from core.app_config import logger
 from crud.discount import to_vietnam_aware
 
-async def _get_full_product_details_by_id(db: asyncpg.Connection, product_id: int) -> Optional[schemas.Product]:
-    """Internal helper to fetch a product by ID, irrespective of its is_active status."""
-    row = await db.fetchrow("""
-        SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.created_at, p.updated_at, p.release_date,
-               c.id as category_id, c.name as category_name,
-               b.id as brand_id, b.name as brand_name,
-               d.percent as discount_percent, d.start_date, d.end_date
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN brands b ON p.brand_id = b.id
-        LEFT JOIN discounts d ON p.id = d.product_id AND d.is_active = TRUE AND d.start_date <= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp AND d.end_date >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp
-        WHERE p.id = $1
-    """, product_id)
-    if not row:
-        return None
+PRODUCT_DETAIL_SELECT = """
+    SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.created_at, p.updated_at, p.release_date,
+           c.id as category_id, c.name as category_name,
+           b.id as brand_id, b.name as brand_name,
+           d.percent as discount_percent, d.start_date, d.end_date
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    LEFT JOIN brands b ON p.brand_id = b.id
+    LEFT JOIN discounts d ON p.id = d.product_id AND d.is_active = TRUE AND d.start_date <= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp AND d.end_date >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp
+"""
 
+def _row_to_product(row) -> schemas.Product:
     product_data = dict(row)
     if product_data.get("image_urls"):
         try:
@@ -43,13 +39,16 @@ async def _get_full_product_details_by_id(db: asyncpg.Connection, product_id: in
     
     return schemas.Product(**product_data, discount_percent=discount_percent, final_price=final_price, start_date=start_date, end_date=end_date, category=category_data, brand=brand_data)
 
+async def _get_full_product_details_by_id(db: asyncpg.Connection, product_id: int) -> Optional[schemas.Product]:
+    """Internal helper to fetch a product by ID, irrespective of its is_active status."""
+    row = await db.fetchrow(PRODUCT_DETAIL_SELECT + " WHERE p.id = $1", product_id)
+    if not row:
+        return None
+    return _row_to_product(row)
+
 async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, search_query: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None) -> List[schemas.Product]:
     # This function is for public-facing queries, so it correctly filters for is_active = TRUE
-    query = """
-        SELECT p.id
-        FROM products p
-        WHERE p.is_active = TRUE
-    """
+    query = PRODUCT_DETAIL_SELECT + " WHERE p.is_active = TRUE"
     params = []
     param_idx = 1
     if search_query:
@@ -77,12 +76,7 @@ async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, 
     params.extend([skip, limit])
 
     rows = await db.fetch(query, *params)
-    products = []
-    for row in rows:
-        product = await _get_full_product_details_by_id(db, row['id'])
-        if product:
-            products.append(product)
-    return products
+    return [_row_to_product(row) for row in rows]
 
 async def get_product_by_id(db: asyncpg.Connection, product_id: int) -> Optional[schemas.Product]:
     product = await _get_full_product_details_by_id(db, product_id)
@@ -132,14 +126,11 @@ async def delete_product(db: asyncpg.Connection, product_id: int) -> Optional[sc
     return await _get_full_product_details_by_id(db, product_id)
 
 async def get_deleted_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
-    rows = await db.fetch("SELECT id FROM products WHERE is_active=FALSE ORDER BY id OFFSET $1 LIMIT $2", skip, limit)
-    products = []
-    for row in rows:
-        # CORRECTED: Use the internal helper that fetches regardless of status
-        product = await _get_full_product_details_by_id(db, row['id'])
-        if product:
-            products.append(product)
-    return products
+    rows = await db.fetch(
+        PRODUCT_DETAIL_SELECT + " WHERE p.is_active = FALSE ORDER BY p.id OFFSET $1 LIMIT $2",
+        skip, limit
+    )
+    return [_row_to_product(row) for row in rows]
 
 async def restore_product(db: asyncpg.Connection, product_id: int) -> Optional[schemas.Product]:
     await db.execute("UPDATE products SET is_active=TRUE, updated_at=NOW() WHERE id = $1", product_id)

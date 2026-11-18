@@ -46,7 +46,7 @@ async def callback(request: Request, db: asyncpg.Connection = Depends(database.g
         token_json = token_resp.json()
         access_token = token_json.get("access_token")
         if not access_token:
-            raise HTTPException(status_code=400, detail="No access token")
+            raise HTTPException(status_code=400, detail=f"Google token exchange failed: {token_json}")
         userinfo_resp = await client.get(settings.GOOGLE.USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"})
         userinfo = userinfo_resp.json()
     email = userinfo.get("email")

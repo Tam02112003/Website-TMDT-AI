@@ -1,8 +1,10 @@
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+import httpx
+
 from core.settings import settings
 from core.app_config import logger
 from datetime import datetime
+
+RESEND_API_URL = "https://api.resend.com/emails"
 
 def send_email(to_email: str, subject: str, order_details: dict):
     try:
@@ -127,20 +129,22 @@ def send_email(to_email: str, subject: str, order_details: dict):
             </html>
         """
 
-        message_obj = Mail(
-            from_email=settings.SMTP.FROM,
-            to_emails=to_email,
-            subject=subject,
-            plain_text_content=plain_message,
-            html_content=html_message
+        response = httpx.post(
+            RESEND_API_URL,
+            headers={"Authorization": f"Bearer {settings.RESEND.API_KEY.get_secret_value()}"},
+            json={
+                "from": settings.RESEND.FROM_EMAIL,
+                "to": [to_email],
+                "subject": subject,
+                "text": plain_message,
+                "html": html_message,
+            },
         )
-        sg = SendGridAPIClient(settings.SENDGRID.API_KEY.get_secret_value())
-        response = sg.send(message_obj)
 
-        if response.status_code >= 200 and response.status_code < 300:
-            logger.info(f"Email sent successfully to {to_email} with subject: {subject}. Status Code: {response.status_code}")
+        if response.status_code in (200, 201):
+            logger.info(f"Email sent successfully to {to_email} with subject: {subject}.")
         else:
-            logger.error(f"Failed to send email to {to_email}. Status Code: {response.status_code}, Body: {response.body}, Headers: {response.headers}")
+            logger.error(f"Failed to send email to {to_email}. Status Code: {response.status_code}, Body: {response.text}")
 
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}", exc_info=True)
