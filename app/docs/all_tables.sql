@@ -14,7 +14,13 @@ CREATE TABLE IF NOT EXISTS orders (
     total_amount FLOAT NOT NULL,
     order_code VARCHAR(20) UNIQUE NOT NULL,
     status VARCHAR(32) DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    payment_method VARCHAR(20),
+    shipping_address TEXT,
+    shipping_city VARCHAR(255),
+    shipping_postal_code VARCHAR(20),
+    shipping_country VARCHAR(255),
+    shipping_phone_number VARCHAR(20)
 );
 
 -- Order items table
