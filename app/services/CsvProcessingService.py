@@ -11,6 +11,9 @@ from core.app_config import logger
 from schemas import schemas
 from crud import product as product_crud
 
+MAX_CSV_ROWS = 200
+LLM_TIMEOUT = httpx.Timeout(60.0)
+
 def sanitize_record(record: dict) -> dict:
     """Replace NaN/Infinity values with safe defaults before JSON serialization or DB insert."""
     clean_record = {}
@@ -42,6 +45,12 @@ async def process_csv_and_save(file: UploadFile, db: asyncpg.Connection):
 
         raw_records = df.to_dict(orient='records')
         logger.info(f"Processing {len(raw_records)} records from CSV file: {file.filename}")
+
+        if len(raw_records) > MAX_CSV_ROWS:
+            raise ValueError(
+                f"CSV has {len(raw_records)} rows, which exceeds the limit of {MAX_CSV_ROWS} "
+                "per upload. Please split the file into smaller batches."
+            )
 
         # ---------------------------
         # STEP 1: Pre-validation (CSV level)
@@ -90,7 +99,7 @@ async def process_csv_and_save(file: UploadFile, db: asyncpg.Connection):
         # ---------------------------
         # STEP 2: Send valid rows to LLM
         # ---------------------------
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
             system_message = {
                 "role": "system",
                 "content": (

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from schemas import schemas
 from crud import product as product_crud
 from core.pkgs.database import get_db
@@ -14,6 +14,8 @@ from core.settings import settings
 from datetime import datetime
 from typing import Optional
 from core.dependencies import log_activity
+from crud.user import require_admin
+from core.limiter import limiter
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
@@ -181,7 +183,13 @@ async def get_product_recommendations(product_id: int, db: asyncpg.Connection = 
     return recommended_products
 
 @router.post("/upload")
-async def upload_products_from_csv(file: UploadFile = File(...), db: asyncpg.Connection = Depends(get_db)):
+@limiter.limit("5/minute")
+async def upload_products_from_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    db: asyncpg.Connection = Depends(get_db),
+    user=Depends(require_admin),
+):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
 

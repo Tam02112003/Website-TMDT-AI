@@ -135,7 +135,7 @@ async def get_chatbot_response(
 
         messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             payload = {
                 "model": settings.LOCAL_LLM.MODEL,
                 "messages": messages,

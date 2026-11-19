@@ -26,7 +26,7 @@ async def generate_news_content(topic: str, keywords: Optional[str] = None, leng
             "max_tokens": 2048
         }
 
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
             response.raise_for_status() # Raise an exception for HTTP errors
 
