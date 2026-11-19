@@ -22,7 +22,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 
 # Add POST /products/ endpoint for creating a product
 @router.post("/", response_model=schemas.Product)
-async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection = Depends(get_db)):
+async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
     new_product = await product_crud.create_product(db, product)
     if new_product is None:
         raise HTTPException(status_code=500, detail="Failed to create product")
@@ -58,7 +58,7 @@ async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)
 
 # Add Update Product endpoint with Kafka publishing
 @router.put("/{product_id}", response_model=schemas.Product)
-async def update_product(product_id: int, product: schemas.ProductUpdate, db: asyncpg.Connection = Depends(get_db)):
+async def update_product(product_id: int, product: schemas.ProductUpdate, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
     db_product = await product_crud.update_product(db, product_id, product)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -85,7 +85,7 @@ async def update_product(product_id: int, product: schemas.ProductUpdate, db: as
 
 # Add Delete Product endpoint with Kafka publishing
 @router.delete("/{product_id}", response_model=schemas.Product)
-async def delete_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):
+async def delete_product(product_id: int, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
     db_product = await product_crud.delete_product(db, product_id)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
