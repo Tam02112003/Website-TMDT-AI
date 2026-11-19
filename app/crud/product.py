@@ -1,5 +1,5 @@
 import asyncpg
-from typing import Optional, List
+from typing import Optional, List, Dict
 from schemas import schemas
 from datetime import datetime
 import json
@@ -45,6 +45,13 @@ async def _get_full_product_details_by_id(db: asyncpg.Connection, product_id: in
     if not row:
         return None
     return _row_to_product(row)
+
+async def get_products_by_ids(db: asyncpg.Connection, product_ids: List[int]) -> Dict[int, schemas.Product]:
+    """Batch-fetch products by id in a single query. Returns a {id: Product} map."""
+    if not product_ids:
+        return {}
+    rows = await db.fetch(PRODUCT_DETAIL_SELECT + " WHERE p.id = ANY($1::int[])", product_ids)
+    return {row["id"]: _row_to_product(row) for row in rows}
 
 async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, search_query: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None) -> List[schemas.Product]:
     # This function is for public-facing queries, so it correctly filters for is_active = TRUE

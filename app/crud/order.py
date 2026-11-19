@@ -10,7 +10,7 @@ from schemas import schemas
 from schemas.schemas import OrderStatusUpdateRequest
 from core.email_sender import send_email
 from crud.user import get_user_by_id
-from crud.product import get_product_by_id
+from crud.product import get_products_by_ids
 from starlette.concurrency import run_in_threadpool
 from core.app_config import logger
 from datetime import datetime
@@ -37,10 +37,13 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
     # Determine order status based on payment method
     status = OrderStatus.PROCESSING if data.payment_method == PaymentMethod.COD else OrderStatus.PENDING
 
+    # Fetch all ordered products in a single query instead of one query per item
+    products_by_id = await get_products_by_ids(db, [item.product_id for item in data.items])
+
     # Calculate total_amount from items, as frontend might send it, but backend should verify
     calculated_total_amount = 0
     for item in data.items:
-        product = await get_product_by_id(db, item.product_id)
+        product = products_by_id.get(item.product_id)
         if not product or not product.is_active:
             raise HTTPException(status_code=400, detail=f"Product with ID {item.product_id} not found or is inactive.")
         # Calculate final_price on backend for comparison
@@ -60,11 +63,15 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
         data.shipping_address.address, data.shipping_address.city, data.shipping_address.postal_code, data.shipping_address.country, data.shipping_address.phone_number
     )
     order_id = row["id"]
-    for item in data.items:
-        await db.execute("INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)",
-                         order_id, item.product_id, item.quantity, item.price)
-        # Deduct product quantity from stock
-        await db.execute("UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1", item.quantity, item.product_id)
+    await db.executemany(
+        "INSERT INTO order_items (order_id, product_id, quantity, price) VALUES ($1, $2, $3, $4)",
+        [(order_id, item.product_id, item.quantity, item.price) for item in data.items]
+    )
+    # Deduct product quantity from stock
+    await db.executemany(
+        "UPDATE products SET quantity = quantity - $1 WHERE id = $2 AND quantity >= $1",
+        [(item.quantity, item.product_id) for item in data.items]
+    )
 
     event = {
         "event": "order_created",
@@ -87,10 +94,11 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
         if user and user.get('email'):
             subject = f"Order Confirmation #{order_code}"
 
-            # Prepare items with product names for the email
+            # Prepare items with product names for the email (reuse the products
+            # already fetched above instead of re-querying per item)
             items_for_email = []
             for item_request in data.items:
-                product = await get_product_by_id(db, item_request.product_id)
+                product = products_by_id.get(item_request.product_id)
                 item_data = item_request.model_dump()
                 item_data['product_name'] = product.name if product else "Unknown Product"
                 items_for_email.append(item_data)
@@ -202,28 +210,25 @@ async def process_sepay_payment(db: asyncpg.Connection, order_code: str, amount:
             logger.info(f"Attempting to send Sepay payment confirmation email to {user.get('email')} for order {order_code}")
             subject = f"Order Confirmation #{order_code}"
 
-            # Fetch full order details for the email template
-            full_order = await get_order_by_code(db, order_code)
-            if full_order:
-                order_details = {
-                    "user_name": user.get('username'),
-                    "order_code": full_order.order_code,
-                    "total_amount": full_order.total_amount,
-                    "payment_method": full_order.payment_method,
-                    "order_status": full_order.status,
-                    "shipping_address": {
-                        "address": full_order.shipping_address,
-                        "city": full_order.shipping_city,
-                        "postal_code": full_order.shipping_postal_code,
-                        "country": full_order.shipping_country,
-                        "phone_number": full_order.shipping_phone_number
-                    },
-                    "items": [item.model_dump() for item in full_order.items],
-                    "order_date": full_order.created_at # Use created_at from the fetched order
-                }
-                await send_email(user.get('email'), subject, order_details)
-            else:
-                logger.error(f"Could not fetch full order details for email for order {order_code}")
+            # Reuse the order already fetched above instead of re-querying it;
+            # the status change just made (-> PAID) is applied locally here.
+            order_details = {
+                "user_name": user.get('username'),
+                "order_code": order.order_code,
+                "total_amount": order.total_amount,
+                "payment_method": order.payment_method,
+                "order_status": OrderStatus.PAID.value,
+                "shipping_address": {
+                    "address": order.shipping_address,
+                    "city": order.shipping_city,
+                    "postal_code": order.shipping_postal_code,
+                    "country": order.shipping_country,
+                    "phone_number": order.shipping_phone_number
+                },
+                "items": [item.model_dump() for item in order.items],
+                "order_date": order.created_at
+            }
+            await send_email(user.get('email'), subject, order_details)
 
     return True
 

@@ -101,11 +101,11 @@ async def get_personalized_recommendations(db: asyncpg.Connection, user_id: int,
     
     recommended_ids = [pid for pid, score in sorted_recommendations if score > 0][:num_recommendations]
 
-    # Fetch product details for the recommended IDs
-    recommended_products = []
-    for pid in recommended_ids:
-        product = await product_crud.get_product_by_id(db, product_id=pid)
-        if product:
-            recommended_products.append(product.model_dump())
-            
+    # Fetch product details for the recommended IDs in a single query,
+    # then reorder to match the score-ranked order from above.
+    products_by_id = await product_crud.get_products_by_ids(db, recommended_ids)
+    recommended_products = [
+        products_by_id[pid].model_dump() for pid in recommended_ids if pid in products_by_id
+    ]
+
     return recommended_products
