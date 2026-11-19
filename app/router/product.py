@@ -7,11 +7,6 @@ from typing import List
 from services.CsvProcessingService import process_csv_and_save
 from services.RecommendationService import get_recommendations
 from core.app_config import logger
-from core.redis.redis_client import get_redis_client
-import json
-from core.aws.sns_client import sns_client
-from core.settings import settings
-from datetime import datetime
 from typing import Optional
 from core.dependencies import log_activity
 from crud.user import require_admin
@@ -19,29 +14,6 @@ from core.limiter import limiter
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
-
-# Add POST /products/ endpoint for creating a product
-@router.post("/", response_model=schemas.Product)
-async def create_product(product: schemas.ProductCreate, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
-    new_product = await product_crud.create_product(db, product)
-    if new_product is None:
-        raise HTTPException(status_code=500, detail="Failed to create product")
-
-    # Publish SNS event for product creation
-    event_data = {
-        "product_id": new_product.id,
-        "operation_type": "create",
-        "timestamp": datetime.now().isoformat(),
-        "product_data": json.loads(new_product.model_dump_json())
-    }
-    sns_client.publish_message(
-        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
-        message=json.dumps(event_data), 
-        subject="ProductCreated"
-    )
-    logger.info(f"SNS event 'product_create' sent for product_id: {new_product.id}")
-
-    return new_product
 
 @router.get("/", response_model=List[schemas.Product])
 async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db)):
@@ -54,61 +26,6 @@ async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return db_product
-
-
-# Add Update Product endpoint with Kafka publishing
-@router.put("/{product_id}", response_model=schemas.Product)
-async def update_product(product_id: int, product: schemas.ProductUpdate, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
-    db_product = await product_crud.update_product(db, product_id, product)
-    if db_product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Invalidate cache for deleted products
-    redis_client = await get_redis_client()
-    await redis_client.delete("deleted_products_cache")
-
-    # Publish SNS event
-    event_data = {
-        "product_id": product_id,
-        "operation_type": "update",
-        "timestamp": datetime.now().isoformat(),
-         "new_data": json.loads(db_product.model_dump_json())
-    }
-    sns_client.publish_message(
-        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
-        message=json.dumps(event_data), 
-        subject="ProductUpdated"
-    )
-    logger.info(f"SNS event 'product_update' sent for product_id: {product_id}")
-
-    return db_product
-
-# Add Delete Product endpoint with Kafka publishing
-@router.delete("/{product_id}", response_model=schemas.Product)
-async def delete_product(product_id: int, db: asyncpg.Connection = Depends(get_db), user=Depends(require_admin)):
-    db_product = await product_crud.delete_product(db, product_id)
-    if db_product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Invalidate cache for deleted products
-    redis_client = await get_redis_client()
-    await redis_client.delete("deleted_products_cache")
-
-    # Publish SNS event
-    event_data = {
-        "product_id": product_id,
-        "operation_type": "delete",
-        "timestamp": datetime.now().isoformat()
-    }
-    sns_client.publish_message(
-        topic_arn=settings.AWS.SNS_PRODUCT_EVENTS_TOPIC_ARN, 
-        message=json.dumps(event_data), 
-        subject="ProductDeleted"
-    )
-    logger.info(f"SNS event 'product_delete' sent for product_id: {product_id}")
-
-    return db_product
-
 
 
 @router.post("/{product_id}/comments", response_model=schemas.Comment)
