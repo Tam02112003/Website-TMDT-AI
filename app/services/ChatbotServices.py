@@ -109,14 +109,26 @@ async def get_chatbot_response(
     question: str,
     db: asyncpg.Connection,
     redis_client: Redis,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    user: Optional[dict] = None,
 ) -> schemas.ChatbotResponse:
     try:
+        # Logged-in users always own their own history, keyed by their user id -
+        # a client-supplied session_id is never trusted to read/write someone
+        # else's conversation. Guests fall back to their own session_id, namespaced
+        # separately so a guest id can never collide with a real user's history.
+        if user:
+            history_key = f"chatbot_history:user:{user['id']}"
+        elif session_id:
+            history_key = f"chatbot_history:anon:{session_id}"
+        else:
+            history_key = None
+
         conversation_history = []
-        if session_id:
-            cached_history = await redis_client.get(f"chatbot_history:{session_id}")
+        if history_key:
+            cached_history = await redis_client.get(history_key)
             if cached_history:
-                logger.debug(f"Found cached history for session {session_id}")
+                logger.debug(f"Found cached history for key {history_key}")
                 conversation_history = json.loads(cached_history)
 
         conversation_history.append({"role": "user", "content": str(question)})
@@ -176,20 +188,19 @@ async def get_chatbot_response(
 
         conversation_history.append({"role": "assistant", "content": answer})
 
-        if session_id:
-            trimmed = conversation_history[-ChatbotSessionTime.MAX_HISTORY_LEN:]
-            safe_history = [
-                {"role": msg.get("role", "assistant"), "content": str(msg.get("content", ""))}
-                for msg in trimmed
-            ]
+        safe_history = [
+            {"role": msg.get("role", "assistant"), "content": str(msg.get("content", ""))}
+            for msg in conversation_history[-ChatbotSessionTime.MAX_HISTORY_LEN:]
+        ]
+        if history_key:
             await redis_client.set(
-                f"chatbot_history:{session_id}",
+                history_key,
                 json.dumps(safe_history, ensure_ascii=False),
                 ex=int(ChatbotSessionTime.SESSION_TTL)
             )
-            logger.debug(f"Updated conversation history for session {session_id}")
+            logger.debug(f"Updated conversation history for key {history_key}")
 
-        return schemas.ChatbotResponse(answer=answer, history=conversation_history)
+        return schemas.ChatbotResponse(answer=answer, history=safe_history)
 
     except Exception as e:
         logger.error(f"An unexpected error occurred in get_chatbot_response: {e}", exc_info=True)

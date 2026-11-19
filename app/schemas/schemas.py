@@ -193,6 +193,7 @@ class ChatbotRequest(BaseModel):
 
 class ChatbotResponse(BaseModel):
     answer: str
+    history: Optional[List[dict]] = None
 
 class OrderCreateResponse(BaseModel):
     order_code: str

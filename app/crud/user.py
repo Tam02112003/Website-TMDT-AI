@@ -127,6 +127,18 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     except exceptions.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+def get_optional_user(token: Optional[str] = Depends(optional_oauth2_scheme)) -> Optional[dict]:
+    """Like get_current_user, but returns None instead of raising when no/invalid
+    token is present - for endpoints usable by both guests and logged-in users."""
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, settings.JWT.SECRET.get_secret_value(), algorithms=["HS256"])
+    except exceptions.PyJWTError:
+        return None
+
 def require_admin(user=Depends(get_current_user)):
     if not user.get("is_admin"):
         raise HTTPException(status_code=403, detail="Admin privileges required")
