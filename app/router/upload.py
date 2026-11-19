@@ -1,6 +1,8 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException, status, Query
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status, Query
 from services.CloudinaryService import upload_image_from_bytes, get_image_url, delete_image
 from core.app_config import logger
+from core.dependencies import log_activity
+from crud.user import require_admin
 import cloudinary.api
 from starlette.concurrency import run_in_threadpool
 from typing import List
@@ -12,7 +14,7 @@ class DeleteImagesRequest(BaseModel):
 router = APIRouter(prefix="/upload", tags=["Upload"])
 
 @router.post("/image")
-async def upload_single_image(file: UploadFile = File(...)):
+async def upload_single_image(file: UploadFile = File(...), current_user: dict = Depends(log_activity)):
     try:
         # Validate file type (optional but recommended)
         if not file.content_type.startswith('image/'):
@@ -43,7 +45,7 @@ async def get_uploaded_image_url(public_id: str):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to retrieve image URL: {e}")
 
 @router.delete("/image/{public_id:path}")
-async def delete_uploaded_image(public_id: str):
+async def delete_uploaded_image(public_id: str, user=Depends(require_admin)):
     try:
         # Cloudinary API destroy is synchronous, run in thread pool
         result = await run_in_threadpool(delete_image, public_id)
@@ -55,7 +57,7 @@ async def delete_uploaded_image(public_id: str):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to delete image: {e}")
 
 @router.post("/delete-multiple")
-async def delete_multiple_images(request: DeleteImagesRequest):
+async def delete_multiple_images(request: DeleteImagesRequest, user=Depends(require_admin)):
     results = []
     errors = []
     for public_id in request.public_ids:
@@ -72,7 +74,7 @@ async def delete_multiple_images(request: DeleteImagesRequest):
     return {"message": "All selected images deleted successfully", "results": results}
 
 @router.get("/images")
-async def list_uploaded_images(folder: str = Query(None, description="List images within a specific folder")):
+async def list_uploaded_images(folder: str = Query(None, description="List images within a specific folder"), user=Depends(require_admin)):
     try:
         options = {'type': 'upload', 'max_results': 500} # Max 500 results per call
         if folder:
