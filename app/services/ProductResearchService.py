@@ -47,8 +47,11 @@ SYSTEM_PROMPT_TEMPLATE = (
     f"nếu không khớp cái nào): {{categories}}\n"
     "6. 'suggested_brand' nếu khớp với một trong các hãng sau thì dùng đúng tên đó, "
     f"ngược lại để null: {{brands}}\n"
-    "7. Tối đa " + str(MAX_CANDIDATES) + " sản phẩm, chỉ lấy những sản phẩm có đủ thông tin "
-    "tối thiểu (tên + mô tả).\n"
+    "7. Tối đa " + str(MAX_CANDIDATES) + " sản phẩm. ƯU TIÊN CHẤT LƯỢNG HƠN SỐ LƯỢNG: chỉ đưa "
+    "vào một sản phẩm nếu nguồn cho đủ ít nhất 2 thông số kỹ thuật cụ thể (switch, layout, kết "
+    "nối, pin, polling rate, vật liệu...). Nếu một sản phẩm chỉ được nhắc tên mà không có chi "
+    "tiết kỹ thuật nào đáng kể, BỎ QUA sản phẩm đó hoàn toàn - thà trả về ít sản phẩm có chất "
+    "lượng còn hơn liệt kê nhiều sản phẩm chỉ có một câu giới thiệu mơ hồ.\n"
     "8. Trả về JSON với khóa 'candidates' là một mảng, mỗi phần tử có các khóa: "
     "'name', 'description', 'estimated_price', 'suggested_category', 'suggested_brand', "
     "'source_url'. KHÔNG thêm văn bản nào khác ngoài JSON."
@@ -97,7 +100,7 @@ async def research_product_candidates(db: asyncpg.Connection, topic: str, keywor
     # instead of pulling unrelated general news (cars, music, etc.) - "general"
     # topic mode also avoids Tavily's news-bias doing the same for broad queries.
     search_query = f"bàn phím cơ {topic} {keywords or ''} giá bán review".strip()
-    search_response = await search_keyboard_market(search_query, topic="general")
+    search_response = await search_keyboard_market(search_query, topic="general", include_raw_content=True)
     sources = search_response["results"]
     images = search_response["images"]
 
