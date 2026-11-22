@@ -85,7 +85,7 @@ async def search_keyboard_market(query: str, topic: str = "news", include_raw_co
         "topic": topic,
         "max_results": MAX_RESULTS,
         "include_answer": False,
-        "include_raw_content": "markdown" if include_raw_content else False,
+        "include_raw_content": include_raw_content,
         "include_images": True,
         "include_image_descriptions": True,
     }
