@@ -215,6 +215,15 @@ class AINewsGenerateRequest(BaseModel):
     keywords: Optional[str] = None
     length: str = "vừa phải"
 
+class NewsSource(BaseModel):
+    title: str
+    url: str
+
+class AINewsGenerateResponse(BaseModel):
+    title: str
+    content: str
+    sources: List[NewsSource] = []
+
 class ChatbotRequest(BaseModel):
     question: str
     session_id: Optional[str] = None

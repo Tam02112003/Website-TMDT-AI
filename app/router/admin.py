@@ -9,7 +9,7 @@ from crud import product as crud_product
 from crud import discount as crud_discount
 from core.pkgs import database
 from crud.user import require_admin
-from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, DiscountCreate, DiscountUpdate
+from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate
 from services import NewsAIService
 from typing import Optional
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -145,7 +145,7 @@ async def delete_product_endpoint(product_id: int, db=Depends(database.get_db), 
     await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return {"message": "Product deleted successfully"}
 
-@router.post("/news/generate-ai", summary="Generate news content using AI (Admin Only)")
+@router.post("/news/generate-ai", summary="Generate news content using AI (Admin Only)", response_model=AINewsGenerateResponse)
 async def generate_ai_news_endpoint(request: AINewsGenerateRequest, admin: dict = Depends(require_admin)):
     try:
         generated_content = await NewsAIService.generate_news_content(

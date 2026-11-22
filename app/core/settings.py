@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Optional
 from pydantic import SecretStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
@@ -93,6 +94,12 @@ class JwtSettings(BaseSettings):
 class RapidAPISettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RAPID_API_")
     KEY: SecretStr
+
+class TavilySettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="TAVILY_")
+    # Optional: AI news generation falls back to ungrounded mode (with a clear
+    # warning) when this isn't configured, rather than crashing the app.
+    API_KEY: Optional[SecretStr] = None
 
 class RedisSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="REDIS_")
@@ -189,6 +196,7 @@ class Settings:
             self.GOOGLE = GoogleSettings()
             self.JWT = JwtSettings()
             self.RAPID_API = RapidAPISettings()
+            self.TAVILY = TavilySettings()
             self.REDIS = RedisSettings()
             self.AWS = AWSSettings()
 
