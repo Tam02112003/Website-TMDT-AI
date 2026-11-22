@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from core.redis.redis_client import clear_redis_cache_data
+from redis.asyncio import Redis
+from core.redis.redis_client import clear_redis_cache_data, get_redis_client, invalidate_cache_pattern
+from router.product import PRODUCTS_LIST_CACHE_PATTERN
 from crud import user as crud_user
 from crud import order as crud_order
 from crud import news as crud_news
@@ -97,8 +99,9 @@ async def delete_news_endpoint(news_id: int, db=Depends(database.get_db), admin:
     return {"message": "News deleted successfully"}
 
 @router.post("/products", summary="Create product (Admin Only)")
-async def create_product_endpoint(product: ProductCreate, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def create_product_endpoint(product: ProductCreate, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     created_product = await crud_product.create_product(db, product)
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return created_product
 
 @router.get("/products", summary="Get all products (Admin Only)")
@@ -112,10 +115,11 @@ async def get_deleted_products_endpoint(db=Depends(database.get_db), admin: dict
     return deleted_products
 
 @router.put("/products/{product_id}/restore", summary="Restore a product (Admin Only)")
-async def restore_product_endpoint(product_id: int, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def restore_product_endpoint(product_id: int, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     restored_product = await crud_product.restore_product(db, product_id)
     if not restored_product:
         raise HTTPException(status_code=404, detail="Product not found or already active")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return restored_product
 
 @router.get("/products/{product_id}", summary="Get product by ID (Admin Only)")
@@ -126,17 +130,19 @@ async def get_product_by_id_endpoint(product_id: int, db=Depends(database.get_db
     return product_item
 
 @router.put("/products/{product_id}", summary="Update product (Admin Only)")
-async def update_product_endpoint(product_id: int, product: ProductUpdate, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def update_product_endpoint(product_id: int, product: ProductUpdate, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     updated_product = await crud_product.update_product(db, product_id, product)
     if not updated_product:
         raise HTTPException(status_code=404, detail="Product not found")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return updated_product
 
 @router.delete("/products/{product_id}", summary="Delete product (Admin Only)")
-async def delete_product_endpoint(product_id: int, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def delete_product_endpoint(product_id: int, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     deleted_product = await crud_product.delete_product(db, product_id)
     if not deleted_product:
         raise HTTPException(status_code=404, detail="Product not found")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return {"message": "Product deleted successfully"}
 
 @router.post("/news/generate-ai", summary="Generate news content using AI (Admin Only)")
@@ -152,8 +158,9 @@ async def generate_ai_news_endpoint(request: AINewsGenerateRequest, admin: dict 
         raise HTTPException(status_code=500, detail=f"AI news generation failed: {e}")
 
 @router.post("/discounts", summary="Create discount (Admin Only)")
-async def create_discount_endpoint(discount: DiscountCreate, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def create_discount_endpoint(discount: DiscountCreate, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     created_discount = await crud_discount.create_discount(db, discount)
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return created_discount
 
 @router.get("/discounts", summary="Get all discounts (Admin Only)")
@@ -167,10 +174,11 @@ async def get_deleted_discounts_endpoint(db=Depends(database.get_db), admin: dic
     return deleted_discounts
 
 @router.put("/discounts/{discount_id}/restore", summary="Restore a discount (Admin Only)")
-async def restore_discount_endpoint(discount_id: int, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def restore_discount_endpoint(discount_id: int, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     restored_discount = await crud_discount.restore_discount(db, discount_id)
     if not restored_discount:
         raise HTTPException(status_code=404, detail="Discount not found or already active")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return restored_discount
 
 @router.get("/discounts/{discount_id}", summary="Get discount by ID (Admin Only)")
@@ -181,15 +189,17 @@ async def get_discount_by_id_endpoint(discount_id: int, db=Depends(database.get_
     return discount_item
 
 @router.put("/discounts/{discount_id}", summary="Update discount (Admin Only)")
-async def update_discount_endpoint(discount_id: int, discount: DiscountUpdate, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def update_discount_endpoint(discount_id: int, discount: DiscountUpdate, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     updated_discount = await crud_discount.update_discount(db, discount_id, discount)
     if not updated_discount:
         raise HTTPException(status_code=404, detail="Discount not found")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return updated_discount
 
 @router.delete("/discounts/{discount_id}", summary="Delete discount (Admin Only)")
-async def delete_discount_endpoint(discount_id: int, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+async def delete_discount_endpoint(discount_id: int, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     deleted_discount = await crud_discount.delete_discount(db, discount_id)
     if not deleted_discount:
         raise HTTPException(status_code=404, detail="Discount not found")
+    await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
     return {"message": "Discount deleted successfully"}

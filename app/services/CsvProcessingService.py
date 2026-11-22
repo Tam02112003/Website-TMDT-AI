@@ -4,7 +4,6 @@ import httpx
 import json
 import io
 import math
-from fastapi import UploadFile
 from pydantic import ValidationError
 from core.settings import settings
 from core.app_config import logger
@@ -29,22 +28,24 @@ def sanitize_record(record: dict) -> dict:
             clean_record[key] = value
     return clean_record
 
-async def process_csv_and_save(file: UploadFile, db: asyncpg.Connection):
+async def process_csv_and_save(content: bytes, filename: str, db: asyncpg.Connection):
     """
-    Reads a CSV file, validates raw data, sends valid records to LLM for cleaning,
+    Reads CSV bytes, validates raw data, sends valid records to LLM for cleaning,
     validates again, and saves to the DB.
     Returns a detailed report of all successful and failed imports.
+
+    Takes raw bytes rather than an UploadFile so it can run from a background
+    task, after the originating request (and its UploadFile stream) has ended.
     """
     try:
-        content = await file.read()
         try:
             df = pd.read_csv(io.BytesIO(content))
         except pd.errors.ParserError as e:
-            logger.error(f"Failed to parse CSV file {file.filename}: {e}")
-            raise ValueError(f"The uploaded file '{file.filename}' is not a valid CSV or is malformed.")
+            logger.error(f"Failed to parse CSV file {filename}: {e}")
+            raise ValueError(f"The uploaded file '{filename}' is not a valid CSV or is malformed.")
 
         raw_records = df.to_dict(orient='records')
-        logger.info(f"Processing {len(raw_records)} records from CSV file: {file.filename}")
+        logger.info(f"Processing {len(raw_records)} records from CSV file: {filename}")
 
         if len(raw_records) > MAX_CSV_ROWS:
             raise ValueError(

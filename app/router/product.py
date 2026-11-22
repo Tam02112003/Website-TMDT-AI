@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Request
+from redis.asyncio import Redis
+import json
+import uuid
 from schemas import schemas
 from crud import product as product_crud
-from core.pkgs.database import get_db
+from core.pkgs.database import get_db, connection_pool
 import asyncpg
 from typing import List
 from services.CsvProcessingService import process_csv_and_save
@@ -11,13 +14,31 @@ from typing import Optional
 from core.dependencies import log_activity
 from crud.user import require_admin
 from core.limiter import limiter
+from core.redis.redis_client import get_redis_client, invalidate_cache_pattern, set_job_status, get_job_status
 
 router = APIRouter(prefix="/products", tags=["Products"])
 
+PRODUCTS_LIST_CACHE_PATTERN = "products:list:*"
+PRODUCTS_LIST_CACHE_TTL_SECONDS = 60
+
 
 @router.get("/", response_model=List[schemas.Product])
-async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db)):
+async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db), redis_client: Redis = Depends(get_redis_client)):
+    cache_key = f"products:list:{skip}:{limit}:{search}:{category_id}:{brand_id}:{min_price}:{max_price}"
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            return [schemas.Product(**p) for p in json.loads(cached)]
+    except Exception as e:
+        logger.warning(f"Redis cache read failed for products list, falling back to DB: {e}")
+
     products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search, category_id=category_id, brand_id=brand_id, min_price=min_price, max_price=max_price)
+
+    try:
+        await redis_client.setex(cache_key, PRODUCTS_LIST_CACHE_TTL_SECONDS, json.dumps([p.model_dump(mode="json") for p in products]))
+    except Exception as e:
+        logger.warning(f"Redis cache write failed for products list: {e}")
+
     return products
 
 @router.get("/{product_id}", response_model=schemas.Product)
@@ -99,22 +120,49 @@ async def get_product_recommendations(product_id: int, db: asyncpg.Connection = 
         return []
     return recommended_products
 
-@router.post("/upload")
+async def run_csv_import_job(job_id: str, content: bytes, filename: str, redis_client: Redis):
+    """Runs the actual CSV parsing/LLM-cleanup/DB-insert work outside the request
+    lifecycle. Must acquire its own DB connection: the request's `db` dependency
+    is released back to the pool before a BackgroundTask executes."""
+    try:
+        pool = await connection_pool.get_pool()
+        async with pool.acquire() as db:
+            result = await process_csv_and_save(content, filename, db)
+        await invalidate_cache_pattern(redis_client, PRODUCTS_LIST_CACHE_PATTERN)
+        await set_job_status(redis_client, job_id, "completed", result)
+    except ValueError as e:
+        await set_job_status(redis_client, job_id, "failed", {"detail": str(e)})
+    except Exception as e:
+        logger.error(f"Failed to process CSV file {filename} (job {job_id}): {e}", exc_info=True)
+        await set_job_status(redis_client, job_id, "failed", {"detail": "An unexpected error occurred during CSV processing."})
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("5/minute")
 async def upload_products_from_csv(
     request: Request,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    db: asyncpg.Connection = Depends(get_db),
+    redis_client: Redis = Depends(get_redis_client),
     user=Depends(require_admin),
 ):
     if not file.filename.endswith('.csv'):
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a CSV file.")
 
-    try:
-        result = await process_csv_and_save(file, db)
-        return result
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Failed to process CSV file {file.filename}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An unexpected error occurred during CSV processing.")
+    content = await file.read()
+    job_id = str(uuid.uuid4())
+    await set_job_status(redis_client, job_id, "processing")
+    background_tasks.add_task(run_csv_import_job, job_id, content, file.filename, redis_client)
+    return {"job_id": job_id, "status": "processing"}
+
+@router.get("/upload/status/{job_id}")
+@limiter.limit("60/minute")
+async def get_csv_import_status(
+    request: Request,
+    job_id: str,
+    redis_client: Redis = Depends(get_redis_client),
+    user=Depends(require_admin),
+):
+    job = await get_job_status(redis_client, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    return job
