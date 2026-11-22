@@ -214,17 +214,13 @@ async def _run_suggest_build_tool(db: asyncpg.Connection, arguments: dict) -> di
             else:
                 switches.append(p)
 
-    def serialize(products):
-        return [
-            {"id": p.id, "name": p.name, "price": p.final_price}
-            for p in products
-            if budget_max is None or (p.final_price or p.price) <= budget_max
-        ]
+    def filter_by_budget(products):
+        return [p for p in products if budget_max is None or (p.final_price or p.price) <= budget_max]
 
     return {
-        "keyboards": serialize(keyboards),
-        "switches": serialize(switches),
-        "keycaps": serialize(keycaps),
+        "keyboards": _serialize_products_for_llm(filter_by_budget(keyboards)),
+        "switches": _serialize_products_for_llm(filter_by_budget(switches)),
+        "keycaps": _serialize_products_for_llm(filter_by_budget(keycaps)),
         "budget_max": budget_max,
     }
 
