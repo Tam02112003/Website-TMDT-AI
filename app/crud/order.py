@@ -46,6 +46,10 @@ async def create_order(db: asyncpg.Connection, data: schemas.OrderCreate, user_i
         product = products_by_id.get(item.product_id)
         if not product or not product.is_active:
             raise HTTPException(status_code=400, detail=f"Product with ID {item.product_id} not found or is inactive.")
+        if product.release_date:
+            release_date_aware = to_vietnam_aware(product.release_date)
+            if release_date_aware and release_date_aware > datetime.now(VIETNAM_TZ):
+                raise HTTPException(status_code=400, detail=f"Product '{product.name}' has not been released yet.")
         # Calculate final_price on backend for comparison
         backend_final_price = product.price
         if product.discount_percent is not None:

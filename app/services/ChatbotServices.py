@@ -4,6 +4,8 @@ import asyncpg
 import httpx
 import json
 from datetime import datetime
+import pytz
+from fastapi import HTTPException
 from core.settings import settings
 from schemas import schemas
 from redis.asyncio import Redis
@@ -11,6 +13,9 @@ from core.utils.enums import ChatbotSessionTime
 from core.app_config import logger
 from crud import product as product_crud
 from crud import cart as cart_crud
+from crud.discount import to_vietnam_aware
+
+VIETNAM_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 
@@ -206,10 +211,17 @@ async def _run_add_to_cart_tool(
     product = await product_crud.get_product_by_id(db, product_id)
     if not product:
         return {"error": "product_not_found"}
+    if product.release_date:
+        release_date_aware = to_vietnam_aware(product.release_date)
+        if release_date_aware and release_date_aware > datetime.now(VIETNAM_TZ):
+            return {"error": "not_yet_released", "release_date": product.release_date.isoformat()}
     if (product.quantity or 0) < quantity:
         return {"error": "out_of_stock", "available_quantity": product.quantity or 0}
 
-    await cart_crud.add_to_cart(db, user["id"], product_id, quantity, redis_client)
+    try:
+        await cart_crud.add_to_cart(db, user["id"], product_id, quantity, redis_client)
+    except HTTPException as e:
+        return {"error": "cannot_add_to_cart", "message": e.detail}
     return {
         "success": True,
         "product_name": product.name,
