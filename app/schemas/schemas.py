@@ -219,10 +219,15 @@ class NewsSource(BaseModel):
     title: str
     url: str
 
+class NewsImageCandidate(BaseModel):
+    url: str
+    description: Optional[str] = None
+
 class AINewsGenerateResponse(BaseModel):
     title: str
     content: str
     sources: List[NewsSource] = []
+    images: List[NewsImageCandidate] = []
 
 class ChatbotRequest(BaseModel):
     question: str

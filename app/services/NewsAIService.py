@@ -3,7 +3,7 @@ import json
 from typing import Optional, List
 from core.settings import settings
 from core.app_config import logger
-from services.MarketSearchService import search_keyboard_market, MarketSearchResult
+from services.MarketSearchService import search_keyboard_market, MarketSearchResult, MarketImage
 
 LLM_TIMEOUT = httpx.Timeout(60.0)
 
@@ -37,7 +37,9 @@ def _format_sources_for_prompt(sources: List[MarketSearchResult]) -> str:
 
 async def generate_news_content(topic: str, keywords: Optional[str] = None, length: str = "dài như bài báo") -> dict:
     search_query = f"{topic} {keywords or ''} bàn phím cơ".strip()
-    sources = await search_keyboard_market(search_query)
+    search_response = await search_keyboard_market(search_query)
+    sources = search_response["results"]
+    images = search_response["images"]
 
     try:
         user_prompt = (
@@ -71,6 +73,7 @@ async def generate_news_content(topic: str, keywords: Optional[str] = None, leng
             raise ValueError("Generated news content is missing 'title' or 'content'.")
 
         news_data["sources"] = [{"title": s["title"], "url": s["url"]} for s in sources]
+        news_data["images"] = [{"url": img["url"], "description": img.get("description")} for img in images]
         return news_data
 
     except json.JSONDecodeError as e:
