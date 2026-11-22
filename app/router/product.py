@@ -9,6 +9,7 @@ import asyncpg
 from typing import List
 from services.CsvProcessingService import process_csv_and_save
 from services.RecommendationService import get_recommendations
+from services.SemanticSearchService import semantic_search_products
 from core.app_config import logger
 from typing import Optional
 from core.dependencies import log_activity
@@ -40,6 +41,20 @@ async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] =
         logger.warning(f"Redis cache write failed for products list: {e}")
 
     return products
+
+@router.get("/search/semantic", response_model=List[schemas.Product])
+@limiter.limit("20/minute")
+async def search_products_semantic(
+    request: Request,
+    q: str,
+    limit: int = 20,
+    db: asyncpg.Connection = Depends(get_db),
+    redis_client: Redis = Depends(get_redis_client),
+):
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="Query parameter 'q' is required.")
+    limit = max(1, min(limit, 50))
+    return await semantic_search_products(db, redis_client, q.strip(), limit=limit)
 
 @router.get("/{product_id}", response_model=schemas.Product)
 async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):

@@ -9,8 +9,13 @@ from redis.asyncio import Redis
 from core.utils.enums import ChatbotSessionTime
 from core.app_config import logger
 from crud import product as product_crud
+from crud import cart as cart_crud
 
 MAX_SEARCH_LIMIT = 20
+MAX_CART_QUANTITY = 20
+BUILD_CANDIDATE_LIMIT = 30
+KEYBOARD_CATEGORY_NAMES = ("Bàn phím cơ", "Bàn phím không dây")
+SWITCH_KEYCAP_CATEGORY_NAME = "Switch & Keycap"
 
 SYSTEM_PROMPT = (
     "Bạn là chatbot bán hàng của TamStore, chuyên bàn phím cơ và phụ kiện bàn phím. "
@@ -23,6 +28,14 @@ SYSTEM_PROMPT = (
     "Số lượng còn: [Số lượng]\n"
     "Ảnh sản phẩm: ![Ảnh sản phẩm]([URL hình ảnh])\n"
     "---\n"
+    "Khi người dùng muốn mua hoặc thêm một sản phẩm cụ thể (đã biết product_id từ kết quả "
+    "search_products) vào giỏ hàng, hãy gọi hàm add_to_cart. Việc này CHỈ thêm vào giỏ hàng, "
+    "KHÔNG đặt hàng hay thanh toán - luôn nhắc người dùng vào trang giỏ hàng để xác nhận và "
+    "thanh toán. Nếu add_to_cart báo lỗi cần đăng nhập, hãy báo người dùng đăng nhập trước.\n"
+    "Khi người dùng muốn được tư vấn 'build' một bộ bàn phím cơ (bàn phím/switch/keycap phù hợp "
+    "nhu cầu và ngân sách), hãy gọi hàm suggest_build để lấy danh sách sản phẩm thật theo từng "
+    "nhóm, sau đó tự chọn ra 1 bàn phím + 1 switch + 1 keycap phù hợp nhất và giải thích ngắn "
+    "gọn lý do (âm thanh, cảm giác gõ, mức giá).\n"
     "Nếu không tìm thấy sản phẩm phù hợp hoặc câu hỏi nằm ngoài phạm vi cửa hàng, "
     "hãy trả lời: 'Xin lỗi, tôi không có thông tin cho câu hỏi này.'"
 )
@@ -59,7 +72,52 @@ TOOLS = [
                 "required": [],
             },
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_to_cart",
+            "description": (
+                "Thêm một sản phẩm vào giỏ hàng của người dùng đang đăng nhập. "
+                "Chỉ gọi hàm này với product_id lấy từ kết quả search_products, không tự bịa id. "
+                "Hàm này KHÔNG đặt hàng hay thanh toán, chỉ thêm vào giỏ."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "integer",
+                        "description": "ID sản phẩm cần thêm vào giỏ hàng",
+                    },
+                    "quantity": {
+                        "type": "integer",
+                        "description": f"Số lượng muốn thêm (mặc định 1, tối đa {MAX_CART_QUANTITY})",
+                    },
+                },
+                "required": ["product_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "suggest_build",
+            "description": (
+                "Lấy danh sách bàn phím, switch, keycap đang có bán theo ngân sách, "
+                "để tư vấn một bộ build phù hợp. Chỉ trả về dữ liệu thật từ cửa hàng."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "budget_max": {
+                        "type": "number",
+                        "description": "Tổng ngân sách tối đa tính bằng VNĐ cho cả bộ (bàn phím + switch + keycap), nếu người dùng có đề cập",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -103,6 +161,72 @@ async def _run_search_products_tool(db: asyncpg.Connection, arguments: dict) -> 
         db, limit=limit, search_query=name, min_price=min_price, max_price=max_price
     )
     return _serialize_products_for_llm(products)
+
+
+async def _run_add_to_cart_tool(
+    db: asyncpg.Connection, redis_client: Redis, user: Optional[dict], arguments: dict
+) -> dict:
+    if not user:
+        return {"error": "login_required", "message": "Người dùng cần đăng nhập để thêm vào giỏ hàng."}
+
+    try:
+        product_id = int(arguments.get("product_id"))
+    except (TypeError, ValueError):
+        return {"error": "invalid_product_id"}
+
+    try:
+        quantity = max(1, min(int(arguments.get("quantity", 1)), MAX_CART_QUANTITY))
+    except (TypeError, ValueError):
+        quantity = 1
+
+    product = await product_crud.get_product_by_id(db, product_id)
+    if not product:
+        return {"error": "product_not_found"}
+    if (product.quantity or 0) < quantity:
+        return {"error": "out_of_stock", "available_quantity": product.quantity or 0}
+
+    await cart_crud.add_to_cart(db, user["id"], product_id, quantity, redis_client)
+    return {
+        "success": True,
+        "product_name": product.name,
+        "quantity_added": quantity,
+        "price": product.final_price,
+    }
+
+
+async def _run_suggest_build_tool(db: asyncpg.Connection, arguments: dict) -> dict:
+    try:
+        budget_max = float(arguments["budget_max"]) if arguments.get("budget_max") is not None else None
+    except (TypeError, ValueError):
+        budget_max = None
+
+    all_products = await product_crud.get_products(db, limit=BUILD_CANDIDATE_LIMIT)
+
+    keyboards, switches, keycaps = [], [], []
+    for p in all_products:
+        category_name = p.category.name if p.category else ""
+        name_lower = p.name.lower()
+        if category_name in KEYBOARD_CATEGORY_NAMES:
+            keyboards.append(p)
+        elif category_name == SWITCH_KEYCAP_CATEGORY_NAME:
+            if "keycap" in name_lower:
+                keycaps.append(p)
+            else:
+                switches.append(p)
+
+    def serialize(products):
+        return [
+            {"id": p.id, "name": p.name, "price": p.final_price}
+            for p in products
+            if budget_max is None or (p.final_price or p.price) <= budget_max
+        ]
+
+    return {
+        "keyboards": serialize(keyboards),
+        "switches": serialize(switches),
+        "keycaps": serialize(keycaps),
+        "budget_max": budget_max,
+    }
 
 
 async def get_chatbot_response(
@@ -161,6 +285,10 @@ async def get_chatbot_response(
 
                     if func_name == "search_products":
                         tool_result = await _run_search_products_tool(db, arguments)
+                    elif func_name == "add_to_cart":
+                        tool_result = await _run_add_to_cart_tool(db, redis_client, user, arguments)
+                    elif func_name == "suggest_build":
+                        tool_result = await _run_suggest_build_tool(db, arguments)
                     else:
                         tool_result = {"error": f"Unknown function: {func_name}"}
 

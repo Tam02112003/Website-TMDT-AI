@@ -90,6 +90,26 @@ async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, 
     rows = await db.fetch(query, *params)
     return [_row_to_product(row) for row in rows]
 
+async def get_products_by_keywords(db: asyncpg.Connection, keywords: List[str], limit: int = 200) -> List[schemas.Product]:
+    """Fetches active products whose name or description matches ANY of the given
+    keywords (OR'd ILIKE). Used as the candidate set for semantic search, which
+    then ranks these client-side by keyword-overlap score."""
+    if not keywords:
+        return []
+
+    conditions = []
+    params: List[str] = []
+    for i, kw in enumerate(keywords, start=1):
+        conditions.append(f"(p.name ILIKE ${i} OR p.description ILIKE ${i})")
+        params.append(f"%{kw}%")
+
+    query = PRODUCT_DETAIL_SELECT + f" WHERE p.is_active = TRUE AND ({' OR '.join(conditions)})"
+    query += f" LIMIT ${len(params) + 1}"
+    params.append(limit)
+
+    rows = await db.fetch(query, *params)
+    return [_row_to_product(row) for row in rows]
+
 async def get_product_by_id(db: asyncpg.Connection, product_id: int) -> Optional[schemas.Product]:
     product = await _get_full_product_details_by_id(db, product_id)
     if product and product.is_active:
