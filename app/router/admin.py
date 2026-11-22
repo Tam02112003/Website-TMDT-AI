@@ -115,6 +115,10 @@ async def get_deleted_products_endpoint(db=Depends(database.get_db), admin: dict
     deleted_products = await crud_product.get_deleted_products(db)
     return deleted_products
 
+@router.get("/products/pending-ai", summary="Get AI-researched products awaiting review (Admin Only)")
+async def get_pending_ai_products_endpoint(db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+    return await crud_product.get_pending_ai_products(db)
+
 @router.put("/products/{product_id}/restore", summary="Restore a product (Admin Only)")
 async def restore_product_endpoint(product_id: int, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
     restored_product = await crud_product.restore_product(db, product_id)

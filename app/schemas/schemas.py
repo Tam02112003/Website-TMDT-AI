@@ -34,6 +34,7 @@ class ProductBase(BaseModel):
     quantity: int
     image_urls: Optional[List[str]] = None
     is_active: Optional[bool] = True
+    is_ai_generated: Optional[bool] = False
     release_date: Optional[datetime] = None
     brand_id: Optional[int] = None
     category_id: Optional[int] = None

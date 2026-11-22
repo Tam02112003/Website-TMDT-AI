@@ -50,6 +50,7 @@ CREATE TABLE products (
     quantity INTEGER NOT NULL,
     image_urls JSONB,
     is_active BOOLEAN DEFAULT TRUE,
+    is_ai_generated BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     release_date TIMESTAMP,

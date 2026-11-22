@@ -7,7 +7,7 @@ from core.app_config import logger
 from crud.discount import to_vietnam_aware
 
 PRODUCT_DETAIL_SELECT = """
-    SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.created_at, p.updated_at, p.release_date,
+    SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.is_ai_generated, p.created_at, p.updated_at, p.release_date,
            c.id as category_id, c.name as category_name,
            b.id as brand_id, b.name as brand_name,
            d.percent as discount_percent, d.start_date, d.end_date,
@@ -128,16 +128,18 @@ async def create_product(db: asyncpg.Connection, product: schemas.ProductCreate)
     if release_date and release_date.tzinfo:
         release_date = release_date.replace(tzinfo=None)
     row = await db.fetchrow("""
-        INSERT INTO products (name, description, price, quantity, image_urls, is_active, release_date, brand_id, category_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO products (name, description, price, quantity, image_urls, is_active, is_ai_generated, release_date, brand_id, category_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id
     """,
-        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, release_date, product.brand_id, product.category_id
+        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, bool(product.is_ai_generated), release_date, product.brand_id, product.category_id
     )
     return await _get_full_product_details_by_id(db, row["id"])
 
 async def update_product(db: asyncpg.Connection, product_id: int, product: schemas.ProductUpdate) -> Optional[schemas.Product]:
-    # This function can update an inactive product, so it uses the helper directly
+    # This function can update an inactive product, so it uses the helper directly.
+    # is_ai_generated is intentionally NOT reset here - once an admin edits/approves
+    # a candidate it should still be traceable as AI-sourced, just no longer pending.
     image_urls_json = json.dumps(product.image_urls) if product.image_urls else None
     release_date = product.release_date
     if release_date and release_date.tzinfo:
@@ -164,8 +166,19 @@ async def delete_product(db: asyncpg.Connection, product_id: int) -> Optional[sc
     return await _get_full_product_details_by_id(db, product_id)
 
 async def get_deleted_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
+    # Excludes pending AI candidates (is_ai_generated) - those were never a real,
+    # previously-live product, so they don't belong in the "deleted" trash view;
+    # see get_pending_ai_products for those.
     rows = await db.fetch(
-        PRODUCT_DETAIL_SELECT + " WHERE p.is_active = FALSE ORDER BY p.id OFFSET $1 LIMIT $2",
+        PRODUCT_DETAIL_SELECT + " WHERE p.is_active = FALSE AND p.is_ai_generated = FALSE ORDER BY p.id OFFSET $1 LIMIT $2",
+        skip, limit
+    )
+    return [_row_to_product(row) for row in rows]
+
+async def get_pending_ai_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100) -> List[schemas.Product]:
+    """Products created from AI research, not yet reviewed/activated by an admin."""
+    rows = await db.fetch(
+        PRODUCT_DETAIL_SELECT + " WHERE p.is_active = FALSE AND p.is_ai_generated = TRUE ORDER BY p.id OFFSET $1 LIMIT $2",
         skip, limit
     )
     return [_row_to_product(row) for row in rows]
