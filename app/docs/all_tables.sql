@@ -100,3 +100,18 @@ CREATE TABLE IF NOT EXISTS comments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE
 );
+
+-- Reviews table
+CREATE TABLE IF NOT EXISTS reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    username VARCHAR(255) NOT NULL,
+    rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    content TEXT,
+    verified_purchase BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (product_id, user_id)
+);

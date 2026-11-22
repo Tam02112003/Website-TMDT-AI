@@ -10,11 +10,16 @@ PRODUCT_DETAIL_SELECT = """
     SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.created_at, p.updated_at, p.release_date,
            c.id as category_id, c.name as category_name,
            b.id as brand_id, b.name as brand_name,
-           d.percent as discount_percent, d.start_date, d.end_date
+           d.percent as discount_percent, d.start_date, d.end_date,
+           r.avg_rating, COALESCE(r.review_count, 0) as review_count
     FROM products p
     LEFT JOIN categories c ON p.category_id = c.id
     LEFT JOIN brands b ON p.brand_id = b.id
     LEFT JOIN discounts d ON p.id = d.product_id AND d.is_active = TRUE AND d.start_date <= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp AND d.end_date >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh')::timestamp
+    LEFT JOIN (
+        SELECT product_id, ROUND(AVG(rating)::numeric, 1)::float as avg_rating, COUNT(*) as review_count
+        FROM reviews WHERE is_active = TRUE GROUP BY product_id
+    ) r ON r.product_id = p.id
 """
 
 def _row_to_product(row) -> schemas.Product:

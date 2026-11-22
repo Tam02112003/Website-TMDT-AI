@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 from core.utils.enums import OrderStatus, PaymentMethod
@@ -55,8 +55,36 @@ class Product(ProductBase):
     end_date: Optional[datetime] = None
     brand: Optional[Brand] = None
     category: Optional[Category] = None
+    avg_rating: Optional[float] = None
+    review_count: int = 0
     class Config:
         from_attributes = True
+
+class ReviewBase(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    content: Optional[str] = None
+
+class ReviewCreate(ReviewBase):
+    pass
+
+class ReviewUpdate(ReviewBase):
+    pass
+
+class Review(ReviewBase):
+    id: int
+    product_id: int
+    user_id: int
+    username: str
+    user_avatar_url: Optional[str] = None
+    verified_purchase: bool = False
+    created_at: datetime
+    updated_at: datetime
+    class Config:
+        from_attributes = True
+
+class ReviewSummary(BaseModel):
+    avg_rating: Optional[float] = None
+    review_count: int = 0
 
 class RegisterRequest(BaseModel):
     email: EmailStr
