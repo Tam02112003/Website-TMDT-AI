@@ -90,6 +90,12 @@ async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, 
     rows = await db.fetch(query, *params)
     return [_row_to_product(row) for row in rows]
 
+async def get_all_product_names(db: asyncpg.Connection) -> List[str]:
+    """Lightweight name-only fetch (active + inactive) used for de-duplication,
+    e.g. before creating AI-researched product candidates."""
+    rows = await db.fetch("SELECT name FROM products")
+    return [row["name"] for row in rows]
+
 async def get_products_by_keywords(db: asyncpg.Connection, keywords: List[str], limit: int = 200) -> List[schemas.Product]:
     """Fetches active products whose name or description matches ANY of the given
     keywords (OR'd ILIKE). Used as the candidate set for semantic search, which

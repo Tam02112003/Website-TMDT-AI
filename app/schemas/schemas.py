@@ -229,6 +229,26 @@ class AINewsGenerateResponse(BaseModel):
     sources: List[NewsSource] = []
     images: List[NewsImageCandidate] = []
 
+class ProductResearchRequest(BaseModel):
+    topic: str
+    keywords: Optional[str] = None
+
+class ProductCandidate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    estimated_price: Optional[float] = None
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+    brand_id: Optional[int] = None
+    brand_name: Optional[str] = None
+    image_url: Optional[str] = None
+    source_url: Optional[str] = None
+
+class ProductResearchResponse(BaseModel):
+    candidates: List[ProductCandidate] = []
+    sources: List[NewsSource] = []
+    images: List[NewsImageCandidate] = []
+
 class ChatbotRequest(BaseModel):
     question: str
     session_id: Optional[str] = None

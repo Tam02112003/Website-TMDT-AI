@@ -9,8 +9,9 @@ from crud import product as crud_product
 from crud import discount as crud_discount
 from core.pkgs import database
 from crud.user import require_admin
-from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate
+from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate, ProductResearchRequest, ProductResearchResponse
 from services import NewsAIService
+from services import ProductResearchService
 from typing import Optional
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -156,6 +157,16 @@ async def generate_ai_news_endpoint(request: AINewsGenerateRequest, admin: dict 
         return generated_content
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI news generation failed: {e}")
+
+@router.post("/products/research", summary="Research real product candidates using AI (Admin Only)", response_model=ProductResearchResponse)
+async def research_products_endpoint(request: ProductResearchRequest, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+    try:
+        result = await ProductResearchService.research_product_candidates(
+            db=db, topic=request.topic, keywords=request.keywords
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI product research failed: {e}")
 
 @router.post("/discounts", summary="Create discount (Admin Only)")
 async def create_discount_endpoint(discount: DiscountCreate, db=Depends(database.get_db), redis_client: Redis = Depends(get_redis_client), admin: dict = Depends(require_admin)):
