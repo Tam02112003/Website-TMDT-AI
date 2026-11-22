@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 from typing import Optional, List
 from core.settings import settings
 from core.app_config import logger
+from schemas import schemas
 from services.MarketSearchService import search_keyboard_market
 from crud import category as category_crud
 from crud import brand as brand_crud
@@ -132,6 +133,11 @@ async def research_product_candidates(db: asyncpg.Connection, topic: str, keywor
         logger.error(f"Product research generation failed for topic '{topic}': {e}", exc_info=True)
         raise RuntimeError(f"Failed to generate product candidates: {e}")
 
+    # Mutated as we go so two near-duplicate candidates from the same LLM
+    # response don't both get inserted (not just de-duped against the catalog
+    # as it was before this call started).
+    known_names = list(existing_names)
+
     candidates = []
     for i, raw in enumerate(raw_candidates[:MAX_CANDIDATES]):
         name = str(raw.get("name") or "").strip()
@@ -140,8 +146,8 @@ async def research_product_candidates(db: asyncpg.Connection, topic: str, keywor
 
         # Code-level duplicate guard - don't rely on the LLM alone to honor the
         # "don't suggest existing products" instruction.
-        if _is_duplicate_of_existing(name, existing_names):
-            logger.info(f"Skipping product candidate '{name}' - too similar to an existing product.")
+        if _is_duplicate_of_existing(name, known_names):
+            logger.info(f"Skipping product candidate '{name}' - too similar to an existing/already-queued product.")
             continue
 
         try:
@@ -152,10 +158,31 @@ async def research_product_candidates(db: asyncpg.Connection, topic: str, keywor
         category_match = _match_name(raw.get("suggested_category"), categories)
         brand_match = _match_name(raw.get("suggested_brand"), brands)
         image_url = images[i % len(images)]["url"] if images else None
+        description = str(raw.get("description") or "")[:2000]
+
+        # Persist immediately as a pending (inactive, zero-stock) product instead
+        # of only returning it in the response - closing this dialog without an
+        # extra manual "use this" click must not silently lose what was found.
+        # estimated_price can be None (source didn't state one); 0 is a clearer
+        # "needs review" signal than a made-up number, and is_active=False keeps
+        # it off the storefront until an admin verifies price/stock and approves.
+        created = await product_crud.create_product(db, schemas.ProductCreate(
+            name=name[:255],
+            description=description,
+            price=estimated_price or 0.0,
+            quantity=0,
+            image_urls=[image_url] if image_url else None,
+            is_active=False,
+            is_ai_generated=True,
+            category_id=category_match["id"] if category_match else None,
+            brand_id=brand_match["id"] if brand_match else None,
+        ))
+        known_names.append(name)
 
         candidates.append({
+            "id": created.id,
             "name": name[:255],
-            "description": str(raw.get("description") or "")[:2000],
+            "description": description,
             "estimated_price": estimated_price,
             "category_id": category_match["id"] if category_match else None,
             "category_name": category_match["name"] if category_match else None,

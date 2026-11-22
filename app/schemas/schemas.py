@@ -235,6 +235,7 @@ class ProductResearchRequest(BaseModel):
     keywords: Optional[str] = None
 
 class ProductCandidate(BaseModel):
+    id: int
     name: str
     description: Optional[str] = None
     estimated_price: Optional[float] = None
