@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 from core.utils.enums import OrderStatus, PaymentMethod
 
 class BrandBase(BaseModel):
@@ -276,3 +276,43 @@ class SendOtpRequest(BaseModel):
 class VerifyOtpRequest(BaseModel):
     phone_number: str
     otp: str
+
+class DashboardSummary(BaseModel):
+    total_revenue: float
+    total_orders: int
+    total_customers: int
+    avg_order_value: float
+    pending_orders: int
+    revenue_change_pct: Optional[float] = None
+    orders_change_pct: Optional[float] = None
+
+class RevenuePoint(BaseModel):
+    day: date
+    revenue: float
+    order_count: int
+
+class TopProduct(BaseModel):
+    id: int
+    name: str
+    image_url: Optional[str] = None
+    quantity_sold: int
+    revenue: float
+
+class OrderStatusCount(BaseModel):
+    status: str
+    count: int
+
+class RecentOrder(BaseModel):
+    id: int
+    order_code: str
+    username: Optional[str] = None
+    total_amount: float
+    status: str
+    created_at: datetime
+
+class DashboardResponse(BaseModel):
+    summary: DashboardSummary
+    revenue_timeseries: List[RevenuePoint]
+    top_products: List[TopProduct]
+    order_status_breakdown: List[OrderStatusCount]
+    recent_orders: List[RecentOrder]
