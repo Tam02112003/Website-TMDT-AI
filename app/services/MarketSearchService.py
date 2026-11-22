@@ -26,25 +26,32 @@ class MarketSearchResponse(TypedDict):
     images: List[MarketImage]
 
 
-async def search_keyboard_market(query: str) -> MarketSearchResponse:
+async def search_keyboard_market(query: str, topic: str = "news") -> MarketSearchResponse:
     """
     Searches the live web for recent, real information (and real images) to
-    ground an AI-generated news article - the LLM is never allowed to write
-    "market news" purely from its static training data. Returns empty lists
-    (never raises) if Tavily isn't configured or the request fails, so callers
-    can degrade gracefully instead of blocking news generation entirely.
+    ground an AI-generated news article or product research - the LLM is never
+    allowed to write "market news"/product specs purely from its static
+    training data. Returns empty lists (never raises) if Tavily isn't
+    configured or the request fails, so callers can degrade gracefully instead
+    of blocking generation entirely.
+
+    `topic` should be "news" for time-sensitive market-news content, or
+    "general" for product listings/reviews - Tavily's "news" mode biases
+    toward news-article sources and can pull completely unrelated current-events
+    noise (car prices, music releases, etc.) for a vague/generic query that
+    doesn't read as news-shaped.
     """
     empty: MarketSearchResponse = {"results": [], "images": []}
 
     if not settings.TAVILY.API_KEY:
-        logger.warning("TAVILY_API_KEY not configured - AI news generation will run ungrounded.")
+        logger.warning("TAVILY_API_KEY not configured - AI generation will run ungrounded.")
         return empty
 
     payload = {
         "api_key": settings.TAVILY.API_KEY.get_secret_value(),
         "query": query,
         "search_depth": "advanced",
-        "topic": "news",
+        "topic": topic,
         "max_results": MAX_RESULTS,
         "include_answer": False,
         "include_raw_content": False,

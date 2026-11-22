@@ -92,8 +92,12 @@ def _match_name(suggested: Optional[str], real_items: list) -> Optional[dict]:
 
 
 async def research_product_candidates(db: asyncpg.Connection, topic: str, keywords: Optional[str] = None) -> dict:
-    search_query = f"{topic} {keywords or ''} bàn phím cơ sản phẩm mới".strip()
-    search_response = await search_keyboard_market(search_query)
+    # Lead with "bàn phím cơ" and a shopping-style anchor term so a vague topic
+    # (e.g. "bàn phím nổi bật 2026") still reads as a keyboard-shopping query
+    # instead of pulling unrelated general news (cars, music, etc.) - "general"
+    # topic mode also avoids Tavily's news-bias doing the same for broad queries.
+    search_query = f"bàn phím cơ {topic} {keywords or ''} giá bán review".strip()
+    search_response = await search_keyboard_market(search_query, topic="general")
     sources = search_response["results"]
     images = search_response["images"]
 
@@ -126,13 +130,32 @@ async def research_product_candidates(db: asyncpg.Connection, topic: str, keywor
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": 0.3,
-            "max_tokens": 2048,
+            # gpt-oss is a reasoning model that spends tokens "thinking" before
+            # emitting content - with 5 sources plus the existing-products list
+            # in the prompt, a low budget can let it exhaust max_tokens mid-
+            # reasoning and return empty/truncated content, which then fails
+            # Groq's own JSON validation (surfaces as a 400, not a timeout).
+            "max_tokens": 6000,
             "response_format": {"type": "json_object"},
         }
+        # Groq occasionally fails its own response_format validation
+        # ("json_validate_failed") when the model's output doesn't parse as
+        # JSON - this is intermittent, not deterministic on the input, so one
+        # retry clears most of them instead of surfacing a spurious failure.
+        llm_content = None
+        last_error = None
         async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-            response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
-            response.raise_for_status()
-            llm_content = response.json()["choices"][0]["message"]["content"].strip()
+            for attempt in range(2):
+                response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
+                if response.status_code == 400 and "json_validate_failed" in response.text:
+                    last_error = response.text
+                    logger.warning(f"Groq json_validate_failed on attempt {attempt + 1}, retrying: {response.text}")
+                    continue
+                response.raise_for_status()
+                llm_content = response.json()["choices"][0]["message"]["content"].strip()
+                break
+        if llm_content is None:
+            raise RuntimeError(f"Groq failed to produce valid JSON after retry: {last_error}")
 
         parsed = json.loads(llm_content)
         raw_candidates = parsed.get("candidates", [])
