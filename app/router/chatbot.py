@@ -3,6 +3,7 @@ from schemas import schemas
 from core.pkgs import database
 import asyncpg
 from services import ChatbotServices
+from services.ChatbotServices import ChatbotRateLimitedError
 from redis.asyncio import Redis
 from core.redis.redis_client import get_redis_client
 from core.app_config import logger
@@ -24,6 +25,12 @@ async def chat_with_bot(
         logger.info(f"Received chatbot request for session: {body.session_id}, user: {user.get('sub') if user else 'anonymous'}")
         response = await ChatbotServices.get_chatbot_response(body.question, db, redis_client, body.session_id, user)
         return response
+    except ChatbotRateLimitedError:
+        logger.warning(f"Chatbot rate-limited by LLM provider for session {body.session_id}")
+        raise HTTPException(
+            status_code=503,
+            detail="Chatbot đang có nhiều người dùng cùng lúc, vui lòng thử lại sau vài giây.",
+        )
     except Exception as e:
         logger.error(f"Error in chatbot endpoint for session {body.session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="An internal error occurred in the chatbot.")

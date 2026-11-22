@@ -1,4 +1,5 @@
 from typing import Optional
+import asyncio
 import asyncpg
 import httpx
 import json
@@ -10,6 +11,29 @@ from core.utils.enums import ChatbotSessionTime
 from core.app_config import logger
 from crud import product as product_crud
 from crud import cart as cart_crud
+
+RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
+
+
+class ChatbotRateLimitedError(Exception):
+    """Raised when the LLM provider rate-limits us (HTTP 429), after retrying once."""
+    pass
+
+
+async def _post_to_llm(client: httpx.AsyncClient, payload: dict) -> dict:
+    """Posts to the LLM, retrying once after a short delay if rate-limited (429) -
+    tool-calling conversations make 1-2 LLM calls per user message, so a brief
+    burst can trip the provider's rate limit even under normal usage."""
+    for attempt in range(2):
+        response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
+        if response.status_code == 429 and attempt == 0:
+            logger.warning("LLM rate-limited (429), retrying once after a short delay.")
+            await asyncio.sleep(RATE_LIMIT_RETRY_DELAY_SECONDS)
+            continue
+        if response.status_code == 429:
+            raise ChatbotRateLimitedError("LLM provider rate limit exceeded.")
+        response.raise_for_status()
+        return response.json()
 
 MAX_SEARCH_LIMIT = 20
 MAX_CART_QUANTITY = 20
@@ -265,9 +289,7 @@ async def get_chatbot_response(
                 "max_tokens": 1024,
             }
             logger.debug("Sending request to LLM (tool-call step).")
-            response = await client.post(settings.LOCAL_LLM.API_URL, json=payload, headers=settings.LOCAL_LLM.HEADERS)
-            response.raise_for_status()
-            message = response.json()["choices"][0]["message"]
+            message = (await _post_to_llm(client, payload))["choices"][0]["message"]
 
             tool_calls = message.get("tool_calls")
             if tool_calls:
@@ -302,11 +324,8 @@ async def get_chatbot_response(
                     "max_tokens": 1024,
                 }
                 logger.debug("Sending request to LLM (final answer step).")
-                followup_response = await client.post(
-                    settings.LOCAL_LLM.API_URL, json=followup_payload, headers=settings.LOCAL_LLM.HEADERS
-                )
-                followup_response.raise_for_status()
-                answer = str(followup_response.json()["choices"][0]["message"]["content"]).strip()
+                followup_result = await _post_to_llm(client, followup_payload)
+                answer = str(followup_result["choices"][0]["message"]["content"]).strip()
             else:
                 answer = str(message.get("content") or "").strip()
 
@@ -326,6 +345,9 @@ async def get_chatbot_response(
 
         return schemas.ChatbotResponse(answer=answer, history=safe_history)
 
+    except ChatbotRateLimitedError:
+        logger.warning("Chatbot request failed: LLM provider rate limit exceeded after retry.")
+        raise
     except Exception as e:
         logger.error(f"An unexpected error occurred in get_chatbot_response: {e}", exc_info=True)
-        raise e
+        raise
