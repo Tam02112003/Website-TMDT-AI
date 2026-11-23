@@ -101,6 +101,16 @@ class TavilySettings(BaseSettings):
     # warning) when this isn't configured, rather than crashing the app.
     API_KEY: Optional[SecretStr] = None
 
+class GoogleDriveBackupSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="GDRIVE_BACKUP_")
+    # Service accounts have no Drive storage quota of their own and can't
+    # write new files into a personal (non-Workspace) Drive folder even when
+    # shared as Editor - uploads must run as the folder's real owner via
+    # OAuth, hence a refresh token instead of a service-account key.
+    FOLDER_ID: Optional[str] = None
+    OAUTH_REDIRECT_URI: Optional[str] = None
+    REFRESH_TOKEN: Optional[SecretStr] = None
+
 class RedisSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="REDIS_")
     HOST: str = 'localhost'
@@ -197,6 +207,7 @@ class Settings:
             self.JWT = JwtSettings()
             self.RAPID_API = RapidAPISettings()
             self.TAVILY = TavilySettings()
+            self.GDRIVE_BACKUP = GoogleDriveBackupSettings()
             self.REDIS = RedisSettings()
             self.AWS = AWSSettings()
 

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import RedirectResponse
+import httpx
 from redis.asyncio import Redis
 from core.redis.redis_client import clear_redis_cache_data, get_redis_client, invalidate_cache_pattern
 from router.product import PRODUCTS_LIST_CACHE_PATTERN
@@ -12,6 +14,8 @@ from crud.user import require_admin
 from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate, ProductResearchRequest, ProductResearchResponse
 from services import NewsAIService
 from services import ProductResearchService
+from services import BackupService
+from core.settings import settings
 from typing import Optional
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -31,6 +35,68 @@ async def clear_redis_cache(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to clear Redis cache: {e}"
         )
+
+@router.post("/backup", summary="Export DB and upload to Google Drive (Admin Only)")
+async def create_backup_endpoint(db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+    try:
+        return await BackupService.create_and_upload_backup(db)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Backup failed: {e}")
+
+@router.get("/backup/authorize", summary="One-time: start Google OAuth consent for Drive backups")
+async def backup_authorize():
+    # Service accounts can't write to a personal Drive folder's quota - uploads
+    # must run as the folder's real owner. This is a one-time bootstrap link an
+    # admin opens directly in a browser (plain navigation can't carry our own
+    # Bearer token, so it isn't gated by require_admin like the rest of this
+    # router - see the commit message for why that's an acceptable tradeoff
+    # here), not a feature exposed anywhere in the admin UI.
+    if not settings.GDRIVE_BACKUP.OAUTH_REDIRECT_URI:
+        raise HTTPException(status_code=503, detail="GDRIVE_BACKUP_OAUTH_REDIRECT_URI is not configured.")
+    params = {
+        "client_id": settings.GOOGLE.CLIENT_ID,
+        "response_type": "code",
+        "scope": "https://www.googleapis.com/auth/drive.file",
+        "redirect_uri": settings.GDRIVE_BACKUP.OAUTH_REDIRECT_URI,
+        "access_type": "offline",
+        "prompt": "consent",
+    }
+    async with httpx.AsyncClient() as client:
+        request = client.build_request("GET", settings.GOOGLE.OAUTH2_URL, params=params)
+        return RedirectResponse(str(request.url))
+
+@router.get("/backup/oauth-callback", summary="One-time: Google OAuth callback for Drive backup setup")
+async def backup_oauth_callback(request: Request):
+    code = request.query_params.get("code")
+    if not code:
+        raise HTTPException(status_code=400, detail="No code provided")
+    data = {
+        "code": code,
+        "client_id": settings.GOOGLE.CLIENT_ID,
+        "client_secret": settings.GOOGLE.CLIENT_SECRET.get_secret_value(),
+        "redirect_uri": settings.GDRIVE_BACKUP.OAUTH_REDIRECT_URI,
+        "grant_type": "authorization_code",
+    }
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(settings.GOOGLE.TOKEN_URL, data=data)
+    token_json = token_resp.json()
+    refresh_token = token_json.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No refresh_token returned - Google only issues one on the first consent. "
+                "Revoke prior access at https://myaccount.google.com/permissions (find this "
+                "app, remove it) and visit /admin/backup/authorize again. "
+                f"Raw response: {token_json}"
+            ),
+        )
+    return {
+        "message": "Copy this refresh_token into the GDRIVE_BACKUP_REFRESH_TOKEN env var and redeploy. Shown only once.",
+        "refresh_token": refresh_token,
+    }
 
 @router.get("/users", summary="Get all users (Admin Only)")
 async def get_all_users_endpoint(db=Depends(database.get_db), admin: dict = Depends(require_admin)):
