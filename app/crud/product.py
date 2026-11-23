@@ -5,9 +5,10 @@ from datetime import datetime
 import json
 from core.app_config import logger
 from crud.discount import to_vietnam_aware
+from core.utils.slug import make_product_slug
 
 PRODUCT_DETAIL_SELECT = """
-    SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.is_ai_generated, p.created_at, p.updated_at, p.release_date,
+    SELECT p.id, p.name, p.slug, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.is_ai_generated, p.created_at, p.updated_at, p.release_date,
            p.switch_type, p.layout, p.hot_swappable,
            c.id as category_id, c.name as category_name,
            b.id as brand_id, b.name as brand_name,
@@ -135,6 +136,23 @@ async def get_product_by_id(db: asyncpg.Connection, product_id: int) -> Optional
         return product
     return None
 
+async def get_product_by_slug(db: asyncpg.Connection, slug: str) -> Optional[schemas.Product]:
+    row = await db.fetchrow(PRODUCT_DETAIL_SELECT + " WHERE p.slug = $1", slug)
+    if not row:
+        return None
+    product = _row_to_product(row)
+    return product if product.is_active else None
+
+async def get_product_by_identifier(db: asyncpg.Connection, identifier: str) -> Optional[schemas.Product]:
+    """Looks a product up by its slug, falling back to a numeric id for
+    backward-compatible/internal links (e.g. old bookmarked /products/{id} URLs)."""
+    product = await get_product_by_slug(db, identifier)
+    if product:
+        return product
+    if identifier.isdigit():
+        return await get_product_by_id(db, int(identifier))
+    return None
+
 async def create_product(db: asyncpg.Connection, product: schemas.ProductCreate) -> schemas.Product:
     image_urls_json = json.dumps(product.image_urls) if product.image_urls else None
     release_date = product.release_date
@@ -147,7 +165,9 @@ async def create_product(db: asyncpg.Connection, product: schemas.ProductCreate)
     """,
         product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, bool(product.is_ai_generated), release_date, product.brand_id, product.category_id, product.switch_type, product.layout, bool(product.hot_swappable)
     )
-    return await _get_full_product_details_by_id(db, row["id"])
+    product_id = row["id"]
+    await db.execute("UPDATE products SET slug = $1 WHERE id = $2", make_product_slug(product.name, product_id), product_id)
+    return await _get_full_product_details_by_id(db, product_id)
 
 async def update_product(db: asyncpg.Connection, product_id: int, product: schemas.ProductUpdate) -> Optional[schemas.Product]:
     # This function can update an inactive product, so it uses the helper directly.

@@ -18,7 +18,7 @@ async def sitemap(db: asyncpg.Connection = Depends(get_db)):
     urls = [f"{base_url}/{path}".rstrip("/") for path in STATIC_PATHS]
 
     products = await product_crud.get_products(db, skip=0, limit=10000)
-    urls.extend(f"{base_url}/products/{p.id}" for p in products)
+    urls.extend(f"{base_url}/products/{p.slug or p.id}" for p in products)
 
     news_items = await news_crud.get_news(db, skip=0, limit=10000)
     urls.extend(f"{base_url}/news/{n.id}" for n in news_items)

@@ -45,6 +45,7 @@ CREATE TABLE brands (
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) UNIQUE,
     description TEXT,
     price FLOAT NOT NULL,
     quantity INTEGER NOT NULL,

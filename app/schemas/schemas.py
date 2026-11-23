@@ -50,6 +50,7 @@ class ProductUpdate(ProductBase):
 
 class Product(ProductBase):
     id: int
+    slug: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     discount_percent: Optional[float] = None

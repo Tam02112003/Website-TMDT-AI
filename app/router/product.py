@@ -56,9 +56,9 @@ async def search_products_semantic(
     limit = max(1, min(limit, 50))
     return await semantic_search_products(db, redis_client, q.strip(), limit=limit)
 
-@router.get("/{product_id}", response_model=schemas.Product)
-async def read_product(product_id: int, db: asyncpg.Connection = Depends(get_db)):
-    db_product = await product_crud.get_product_by_id(db, product_id=product_id)
+@router.get("/{identifier}", response_model=schemas.Product)
+async def read_product(identifier: str, db: asyncpg.Connection = Depends(get_db)):
+    db_product = await product_crud.get_product_by_identifier(db, identifier=identifier)
     if db_product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     return db_product
