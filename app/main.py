@@ -7,7 +7,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from contextlib import asynccontextmanager
 from core.app_config import settings, logger, get_printable_settings
 from core.middleware import setup_middleware
-from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user, brand, category, review, dashboard, wishlist
+from router import product, news, discount, tryon, auth, cart, order, payment, chatbot, admin, upload, recommendation, user, brand, category, review, dashboard, wishlist, seo
 from core.limiter import limiter
 
 @asynccontextmanager
@@ -69,4 +69,5 @@ app.include_router(category.router)
 app.include_router(review.router)
 app.include_router(dashboard.router)
 app.include_router(wishlist.router)
+app.include_router(seo.router)
 
