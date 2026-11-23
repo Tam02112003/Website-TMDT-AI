@@ -15,7 +15,7 @@ from core.app_config import logger
 # human-readable when restoring by hand (parents before children).
 BACKUP_TABLES = [
     "categories", "brands", "products", "users", "discounts",
-    "orders", "order_items", "cart", "news", "comments", "reviews",
+    "orders", "order_items", "cart", "news", "comments", "reviews", "wishlist",
 ]
 
 # Columns to leave out of the backup entirely - never export a password hash,

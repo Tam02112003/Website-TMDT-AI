@@ -53,6 +53,7 @@ DATETIME_COLUMNS = {
     "news": {"created_at", "updated_at"},
     "comments": {"created_at"},
     "reviews": {"created_at", "updated_at"},
+    "wishlist": {"created_at"},
 }
 
 

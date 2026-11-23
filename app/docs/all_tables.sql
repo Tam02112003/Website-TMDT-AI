@@ -55,7 +55,19 @@ CREATE TABLE products (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     release_date TIMESTAMP,
     category_id INTEGER REFERENCES categories(id),
-    brand_id INTEGER REFERENCES brands(id)
+    brand_id INTEGER REFERENCES brands(id),
+    switch_type VARCHAR(20),
+    layout VARCHAR(20),
+    hot_swappable BOOLEAN DEFAULT FALSE
+);
+
+-- Wishlist table
+CREATE TABLE IF NOT EXISTS wishlist (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (user_id, product_id)
 );
 
 -- Users table

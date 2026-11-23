@@ -8,6 +8,7 @@ from crud.discount import to_vietnam_aware
 
 PRODUCT_DETAIL_SELECT = """
     SELECT p.id, p.name, p.description, p.price, p.quantity, p.image_urls, p.is_active, p.is_ai_generated, p.created_at, p.updated_at, p.release_date,
+           p.switch_type, p.layout, p.hot_swappable,
            c.id as category_id, c.name as category_name,
            b.id as brand_id, b.name as brand_name,
            d.percent as discount_percent, d.start_date, d.end_date,
@@ -58,7 +59,7 @@ async def get_products_by_ids(db: asyncpg.Connection, product_ids: List[int]) ->
     rows = await db.fetch(PRODUCT_DETAIL_SELECT + " WHERE p.id = ANY($1::int[])", product_ids)
     return {row["id"]: _row_to_product(row) for row in rows}
 
-async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, search_query: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None) -> List[schemas.Product]:
+async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, search_query: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, switch_type: Optional[str] = None, layout: Optional[str] = None, hot_swappable: Optional[bool] = None) -> List[schemas.Product]:
     # This function is for public-facing queries, so it correctly filters for is_active = TRUE
     query = PRODUCT_DETAIL_SELECT + " WHERE p.is_active = TRUE"
     params = []
@@ -82,6 +83,18 @@ async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, 
     if max_price is not None:
         query += f" AND p.price <= ${param_idx}"
         params.append(max_price)
+        param_idx += 1
+    if switch_type:
+        query += f" AND p.switch_type = ${param_idx}"
+        params.append(switch_type)
+        param_idx += 1
+    if layout:
+        query += f" AND p.layout = ${param_idx}"
+        params.append(layout)
+        param_idx += 1
+    if hot_swappable is not None:
+        query += f" AND p.hot_swappable = ${param_idx}"
+        params.append(hot_swappable)
         param_idx += 1
 
     query += f" ORDER BY p.id OFFSET ${param_idx} LIMIT ${param_idx + 1}"
@@ -128,11 +141,11 @@ async def create_product(db: asyncpg.Connection, product: schemas.ProductCreate)
     if release_date and release_date.tzinfo:
         release_date = release_date.replace(tzinfo=None)
     row = await db.fetchrow("""
-        INSERT INTO products (name, description, price, quantity, image_urls, is_active, is_ai_generated, release_date, brand_id, category_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO products (name, description, price, quantity, image_urls, is_active, is_ai_generated, release_date, brand_id, category_id, switch_type, layout, hot_swappable)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         RETURNING id
     """,
-        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, bool(product.is_ai_generated), release_date, product.brand_id, product.category_id
+        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, bool(product.is_ai_generated), release_date, product.brand_id, product.category_id, product.switch_type, product.layout, bool(product.hot_swappable)
     )
     return await _get_full_product_details_by_id(db, row["id"])
 
@@ -145,11 +158,11 @@ async def update_product(db: asyncpg.Connection, product_id: int, product: schem
     if release_date and release_date.tzinfo:
         release_date = release_date.replace(tzinfo=None)
     row = await db.fetchrow("""
-        UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, image_urls=$5, is_active=$6, release_date=$7, brand_id=$8, category_id=$9, updated_at=NOW()
-        WHERE id = $10
+        UPDATE products SET name=$1, description=$2, price=$3, quantity=$4, image_urls=$5, is_active=$6, release_date=$7, brand_id=$8, category_id=$9, switch_type=$10, layout=$11, hot_swappable=$12, updated_at=NOW()
+        WHERE id = $13
         RETURNING id
     """,
-        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, release_date, product.brand_id, product.category_id, product_id
+        product.name, product.description, product.price, product.quantity, image_urls_json, product.is_active, release_date, product.brand_id, product.category_id, product.switch_type, product.layout, bool(product.hot_swappable), product_id
     )
     if row:
         return await _get_full_product_details_by_id(db, product_id)

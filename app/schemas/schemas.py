@@ -38,6 +38,9 @@ class ProductBase(BaseModel):
     release_date: Optional[datetime] = None
     brand_id: Optional[int] = None
     category_id: Optional[int] = None
+    switch_type: Optional[str] = None
+    layout: Optional[str] = None
+    hot_swappable: Optional[bool] = False
 
 class ProductCreate(ProductBase):
     pass
@@ -187,6 +190,9 @@ class OrderStatusUpdateRequest(BaseModel):
 class CartAdd(BaseModel):
     product_id: int
     quantity: int
+
+class WishlistAdd(BaseModel):
+    product_id: int
 
 class CartUpdate(BaseModel):
     product_id: int

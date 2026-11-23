@@ -24,8 +24,8 @@ PRODUCTS_LIST_CACHE_TTL_SECONDS = 60
 
 
 @router.get("/", response_model=List[schemas.Product])
-async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, db: asyncpg.Connection = Depends(get_db), redis_client: Redis = Depends(get_redis_client)):
-    cache_key = f"products:list:{skip}:{limit}:{search}:{category_id}:{brand_id}:{min_price}:{max_price}"
+async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] = None, category_id: Optional[int] = None, brand_id: Optional[int] = None, min_price: Optional[float] = None, max_price: Optional[float] = None, switch_type: Optional[str] = None, layout: Optional[str] = None, hot_swappable: Optional[bool] = None, db: asyncpg.Connection = Depends(get_db), redis_client: Redis = Depends(get_redis_client)):
+    cache_key = f"products:list:{skip}:{limit}:{search}:{category_id}:{brand_id}:{min_price}:{max_price}:{switch_type}:{layout}:{hot_swappable}"
     try:
         cached = await redis_client.get(cache_key)
         if cached:
@@ -33,7 +33,7 @@ async def read_products(skip: int = 0, limit: int = 100, search: Optional[str] =
     except Exception as e:
         logger.warning(f"Redis cache read failed for products list, falling back to DB: {e}")
 
-    products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search, category_id=category_id, brand_id=brand_id, min_price=min_price, max_price=max_price)
+    products = await product_crud.get_products(db, skip=skip, limit=limit, search_query=search, category_id=category_id, brand_id=brand_id, min_price=min_price, max_price=max_price, switch_type=switch_type, layout=layout, hot_swappable=hot_swappable)
 
     try:
         await redis_client.setex(cache_key, PRODUCTS_LIST_CACHE_TTL_SECONDS, json.dumps([p.model_dump(mode="json") for p in products]))
