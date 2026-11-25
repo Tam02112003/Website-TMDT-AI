@@ -145,3 +145,20 @@ async def login_local(data: LoginRequest, request: Request, db: asyncpg.Connecti
     )
 
     return {"access_token": token, "token_type": "bearer"}
+
+
+def create_unsubscribe_token(user_id: int) -> str:
+    payload = {"purpose": "unsubscribe", "user_id": user_id, "exp": datetime.utcnow() + timedelta(days=90)}
+    return jwt.encode(payload, settings.JWT.SECRET.get_secret_value(), algorithm="HS256")
+
+
+@router.get("/unsubscribe")
+async def unsubscribe(token: str, db: asyncpg.Connection = Depends(database.get_db)):
+    try:
+        payload = jwt.decode(token, settings.JWT.SECRET.get_secret_value(), algorithms=["HS256"])
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="Invalid or expired unsubscribe link.")
+    if payload.get("purpose") != "unsubscribe":
+        raise HTTPException(status_code=400, detail="Invalid unsubscribe link.")
+    await user.set_email_subscribed(db, payload["user_id"], False)
+    return {"message": "You have been unsubscribed from promotional emails."}

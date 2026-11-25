@@ -5,6 +5,37 @@ from core.app_config import logger
 from datetime import datetime
 
 RESEND_API_URL = "https://api.resend.com/emails"
+RESEND_BATCH_API_URL = "https://api.resend.com/emails/batch"
+RESEND_BATCH_SIZE = 100
+
+
+def send_email_batch(emails: list[dict]) -> dict:
+    """Sends up to RESEND_BATCH_SIZE emails per Resend API call.
+    Each item in `emails` is {"to_email": str, "subject": str, "html": str}.
+    Returns {"sent": int, "failed": int}."""
+    sent, failed = 0, 0
+    for i in range(0, len(emails), RESEND_BATCH_SIZE):
+        chunk = emails[i:i + RESEND_BATCH_SIZE]
+        payload = [
+            {"from": settings.RESEND.FROM_EMAIL, "to": [item["to_email"]], "subject": item["subject"], "html": item["html"]}
+            for item in chunk
+        ]
+        try:
+            response = httpx.post(
+                RESEND_BATCH_API_URL,
+                headers={"Authorization": f"Bearer {settings.RESEND.API_KEY.get_secret_value()}"},
+                json=payload,
+                timeout=30,
+            )
+            if response.status_code in (200, 201):
+                sent += len(chunk)
+            else:
+                logger.error(f"Resend batch send failed. Status: {response.status_code}, Body: {response.text}")
+                failed += len(chunk)
+        except Exception as e:
+            logger.error(f"Resend batch send raised an exception: {e}", exc_info=True)
+            failed += len(chunk)
+    return {"sent": sent, "failed": failed}
 
 def send_email(to_email: str, subject: str, order_details: dict):
     try:

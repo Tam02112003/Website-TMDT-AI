@@ -15,6 +15,7 @@ from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, P
 from services import NewsAIService
 from services import ProductResearchService
 from services import BackupService
+from services import EmailCampaignService
 from core.settings import settings
 from typing import Optional
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -44,6 +45,15 @@ async def create_backup_endpoint(db=Depends(database.get_db), admin: dict = Depe
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Backup failed: {e}")
+
+@router.post("/marketing/send-promo", summary="Generate and send a promo email for active discounts (Admin Only)")
+async def send_promo_campaign_endpoint(db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+    try:
+        return await EmailCampaignService.send_promo_campaign(db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to send promo campaign: {e}")
 
 @router.get("/backup/authorize", summary="One-time: start Google OAuth consent for Drive backups")
 async def backup_authorize():

@@ -75,6 +75,14 @@ async def authenticate_user(db: asyncpg.Connection, email: str, password: str) -
         return None
     return user_row
 
+async def get_subscribed_users(db: asyncpg.Connection) -> list[dict]:
+    """Users who have not opted out of marketing emails."""
+    rows = await db.fetch("SELECT id, email, username FROM users WHERE email_subscribed = TRUE AND email IS NOT NULL")
+    return [dict(row) for row in rows]
+
+async def set_email_subscribed(db: asyncpg.Connection, user_id: int, subscribed: bool) -> None:
+    await db.execute("UPDATE users SET email_subscribed = $1 WHERE id = $2", subscribed, user_id)
+
 async def get_all_users(db: asyncpg.Connection) -> list[dict]:
     rows = await db.fetch("SELECT id, email, username, is_admin FROM users ORDER BY id DESC")
     return [dict(row) for row in rows]

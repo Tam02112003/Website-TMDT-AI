@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS users (
     password VARCHAR(255),
     is_admin BOOLEAN DEFAULT FALSE,
     phone_number VARCHAR(20),
-    avatar_url VARCHAR(255)
+    avatar_url VARCHAR(255),
+    email_subscribed BOOLEAN DEFAULT TRUE
 );
 
 -- Discounts table

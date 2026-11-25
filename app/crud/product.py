@@ -104,6 +104,18 @@ async def get_products(db: asyncpg.Connection, skip: int = 0, limit: int = 100, 
     rows = await db.fetch(query, *params)
     return [_row_to_product(row) for row in rows]
 
+async def get_discounted_products(db: asyncpg.Connection, limit: int = 6) -> List[schemas.Product]:
+    """Active products with a currently-active discount, highest % first.
+    Used to source content for promotional marketing emails."""
+    query = PRODUCT_DETAIL_SELECT + """
+        WHERE p.is_active = TRUE
+          AND d.id IS NOT NULL
+        ORDER BY d.percent DESC
+        LIMIT $1
+    """
+    rows = await db.fetch(query, limit)
+    return [_row_to_product(row) for row in rows]
+
 async def get_all_product_names(db: asyncpg.Connection) -> List[str]:
     """Lightweight name-only fetch (active + inactive) used for de-duplication,
     e.g. before creating AI-researched product candidates."""
