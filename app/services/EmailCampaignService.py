@@ -12,7 +12,7 @@ CAMPAIGN_IMAGE_FOLDER = "email_campaigns"
 MAX_PRODUCTS = 6
 
 
-def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_url: str) -> str:
+def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_url: str, max_discount: int) -> str:
     base_url = settings.FRONTEND.URL.rstrip("/")
 
     def product_cell(item: dict) -> str:
@@ -42,9 +42,20 @@ def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_u
                 <td align="center" style="padding:24px 12px;">
                     <table role="presentation" width="800" cellpadding="0" cellspacing="0" style="max-width:800px;width:100%;">
                         <tr>
+                            <td style="font-family:Arial,sans-serif;text-align:center;padding:0 16px 16px;">
+                                <p style="margin:0 0 6px;font-size:22px;font-weight:bold;color:#ECEAE4;">
+                                    🔥 TamStore giảm đến {max_discount}% cho bàn phím cơ
+                                </p>
+                                <p style="margin:0;font-size:14px;color:#9CA3A8;">
+                                    Nếu không thấy hình ảnh bên dưới, hãy
+                                    <a href="{base_url}/products" style="color:#55C2A8;text-decoration:underline;">bấm vào đây để xem ưu đãi</a>.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
                             <td>
                                 <a href="{base_url}/products" target="_blank">
-                                    <img src="{hero_url}" width="100%" alt="TamStore" style="display:block;border:0;border-radius:16px;">
+                                    <img src="{hero_url}" width="100%" alt="TamStore - Giảm đến {max_discount}% cho bàn phím cơ" style="display:block;border:0;border-radius:16px;">
                                 </a>
                             </td>
                         </tr>
@@ -70,6 +81,20 @@ def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_u
     </body>
     </html>
     """
+
+
+def _build_campaign_text(product_items: list[dict], unsubscribe_url: str, max_discount: int) -> str:
+    base_url = settings.FRONTEND.URL.rstrip("/")
+    lines = [
+        f"TamStore giam den {max_discount}% cho ban phim co",
+        f"Xem tat ca uu dai: {base_url}/products",
+        "",
+        "San pham dang giam gia:",
+    ]
+    for item in product_items:
+        lines.append(f"- {item['name']}: {base_url}/products/{item['slug_or_id']}")
+    lines += ["", f"Huy dang ky nhan email khuyen mai: {unsubscribe_url}"]
+    return "\n".join(lines)
 
 
 async def send_promo_campaign(db: asyncpg.Connection) -> dict:
@@ -108,11 +133,13 @@ async def send_promo_campaign(db: asyncpg.Connection) -> dict:
     for recipient in recipients:
         token = create_unsubscribe_token(recipient["id"])
         unsubscribe_url = f"{_api_base_url()}/auth/unsubscribe?token={token}"
-        html = _build_campaign_html(hero_url, product_items, unsubscribe_url)
+        html = _build_campaign_html(hero_url, product_items, unsubscribe_url, max_discount)
+        text = _build_campaign_text(product_items, unsubscribe_url, max_discount)
         emails.append({
             "to_email": recipient["email"],
             "subject": f"🔥 Giảm đến {max_discount}% - Ưu đãi có hạn tại TamStore",
             "html": html,
+            "text": text,
         })
 
     result = send_email_batch(emails)

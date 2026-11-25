@@ -11,13 +11,21 @@ RESEND_BATCH_SIZE = 100
 
 def send_email_batch(emails: list[dict]) -> dict:
     """Sends up to RESEND_BATCH_SIZE emails per Resend API call.
-    Each item in `emails` is {"to_email": str, "subject": str, "html": str}.
+    Each item in `emails` is {"to_email": str, "subject": str, "html": str, "text": Optional[str]}.
+    Including a plain-text part improves spam scoring and gives recipients
+    something readable even when their mail client blocks remote images.
     Returns {"sent": int, "failed": int}."""
     sent, failed = 0, 0
     for i in range(0, len(emails), RESEND_BATCH_SIZE):
         chunk = emails[i:i + RESEND_BATCH_SIZE]
         payload = [
-            {"from": settings.RESEND.FROM_EMAIL, "to": [item["to_email"]], "subject": item["subject"], "html": item["html"]}
+            {
+                "from": settings.RESEND.FROM_EMAIL,
+                "to": [item["to_email"]],
+                "subject": item["subject"],
+                "html": item["html"],
+                **({"text": item["text"]} if item.get("text") else {}),
+            }
             for item in chunk
         ]
         try:
