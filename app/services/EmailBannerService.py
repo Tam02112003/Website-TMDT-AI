@@ -1,5 +1,4 @@
 import os
-import textwrap
 from io import BytesIO
 from typing import Optional
 
@@ -28,14 +27,41 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(os.path.join(FONT_DIR, f"Inter-{name}.ttf"), size)
 
 
-_ALLOWED_EXTRA_CODEPOINTS = {0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026, 0x00A0}
+_EMOJI_FONT_PATH = os.path.join(FONT_DIR, "NotoColorEmoji.ttf")
+_EMOJI_RANGES = [
+    (0x1F1E6, 0x1F1FF),  # regional indicators (flags)
+    (0x1F300, 0x1FAFF),  # main emoji block
+    (0x2600, 0x27BF),    # misc symbols & dingbats
+    (0x2B00, 0x2BFF),    # misc symbols and arrows
+    (0xFE0F, 0xFE0F),    # variation selector-16 (emoji presentation)
+    (0x200D, 0x200D),    # zero-width joiner (emoji sequences)
+]
 
 
-def _sanitize_for_font(text: str) -> str:
-    """Drops characters the Inter font has no glyph for (emoji, symbols, etc.),
-    which Pillow would otherwise draw as empty "tofu" boxes. Browsers mask this
-    by falling back to a system emoji font, but Pillow has no such fallback."""
-    return "".join(ch for ch in text if ord(ch) < 0x2070 or ord(ch) in _ALLOWED_EXTRA_CODEPOINTS)
+def _is_emoji(ch: str) -> bool:
+    cp = ord(ch)
+    return any(lo <= cp <= hi for lo, hi in _EMOJI_RANGES)
+
+
+def _split_runs(text: str) -> list[tuple[str, bool]]:
+    """Splits text into runs of (substring, is_emoji), since a single Pillow
+    font can't mix regular glyphs with color-emoji bitmaps - each run has to
+    be drawn with its own font."""
+    runs: list[tuple[str, bool]] = []
+    current = ""
+    current_is_emoji: Optional[bool] = None
+    for ch in text:
+        is_emoji = _is_emoji(ch)
+        if current_is_emoji is None or is_emoji == current_is_emoji:
+            current += ch
+            current_is_emoji = is_emoji
+        else:
+            runs.append((current, current_is_emoji))
+            current = ch
+            current_is_emoji = is_emoji
+    if current:
+        runs.append((current, bool(current_is_emoji)))
+    return runs
 
 
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> tuple[int, int]:
@@ -43,13 +69,68 @@ def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
     return box[2] - box[0], box[3] - box[1]
 
 
-def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int, max_lines: int) -> list[str]:
+# NotoColorEmoji.ttf ships a single fixed bitmap strike - Pillow/FreeType
+# refuses any other point size ("invalid pixel size"), so emoji are always
+# rendered at this native size then resized to whatever `emoji_size` is needed.
+_EMOJI_NATIVE_SIZE = 109
+_emoji_font = ImageFont.truetype(_EMOJI_FONT_PATH, _EMOJI_NATIVE_SIZE)
+_emoji_render_cache: dict[tuple[str, int], Optional[Image.Image]] = {}
+
+
+def _render_emoji_run(run: str, target_size: int) -> Optional[Image.Image]:
+    cache_key = (run, target_size)
+    if cache_key in _emoji_render_cache:
+        return _emoji_render_cache[cache_key]
+
+    pad = 10
+    tmp = Image.new("RGBA", (_EMOJI_NATIVE_SIZE * len(run) + pad, _EMOJI_NATIVE_SIZE + pad), (0, 0, 0, 0))
+    ImageDraw.Draw(tmp).text((0, 0), run, font=_emoji_font, embedded_color=True)
+    bbox = tmp.getbbox()
+    if not bbox:
+        _emoji_render_cache[cache_key] = None
+        return None
+
+    cropped = tmp.crop(bbox)
+    scale = target_size / _EMOJI_NATIVE_SIZE
+    resized = cropped.resize((max(1, int(cropped.width * scale)), max(1, int(cropped.height * scale))), Image.LANCZOS)
+    _emoji_render_cache[cache_key] = resized
+    return resized
+
+
+def _mixed_width(draw: ImageDraw.ImageDraw, text: str, text_font: ImageFont.FreeTypeFont, emoji_size: int) -> float:
+    total = 0.0
+    for run, is_emoji in _split_runs(text):
+        if is_emoji:
+            rendered = _render_emoji_run(run, emoji_size)
+            total += rendered.width if rendered else 0
+        else:
+            total += draw.textlength(run, font=text_font)
+    return total
+
+
+def _draw_mixed_text(img: Image.Image, draw: ImageDraw.ImageDraw, xy: tuple[float, float], text: str, text_font: ImageFont.FreeTypeFont, fill, emoji_size: int) -> None:
+    x, y = xy
+    for run, is_emoji in _split_runs(text):
+        if is_emoji:
+            rendered = _render_emoji_run(run, emoji_size)
+            if rendered:
+                # Nudge up slightly so emoji optically sit on the text baseline
+                # instead of their (taller) bitmap box pushing them too low.
+                img.paste(rendered, (int(x), int(y - 4)), rendered)
+                x += rendered.width
+        else:
+            draw.text((x, y), run, font=text_font, fill=fill)
+            x += draw.textlength(run, font=text_font)
+
+
+def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int, max_lines: int, emoji_size: Optional[int] = None) -> list[str]:
+    width_of = (lambda t: _mixed_width(draw, t, font, emoji_size)) if emoji_size else (lambda t: _text_size(draw, t, font)[0])
     words = text.split()
     lines: list[str] = []
     current = ""
     for word in words:
         trial = f"{current} {word}".strip()
-        if _text_size(draw, trial, font)[0] <= max_width:
+        if width_of(trial) <= max_width:
             current = trial
         else:
             if current:
@@ -59,7 +140,7 @@ def _wrap_to_width(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTyp
             break
     if current and len(lines) < max_lines:
         lines.append(current)
-    if len(lines) == max_lines:
+    if len(lines) == max_lines and emoji_size is None:
         last = lines[-1]
         while _text_size(draw, last + "…", font)[0] > max_width and len(last) > 1:
             last = last[:-1]
@@ -101,8 +182,6 @@ def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
 
 
 def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] = None) -> bytes:
-    title = _sanitize_for_font(title)
-    subtitle = _sanitize_for_font(subtitle)
     width, height = 800, 280
     img = Image.new("RGB", (width, height), COLORS["bg"])
     draw = ImageDraw.Draw(img, "RGBA")
@@ -127,13 +206,13 @@ def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] 
         title_y = 70 + dh + 32
     else:
         title_y = 110
-    draw.text((40, title_y), title, font=title_font, fill=COLORS["ink"])
+    _draw_mixed_text(img, draw, (40, title_y), title, title_font, COLORS["ink"], emoji_size=36)
 
     subtitle_font = _font("Regular", 18)
-    lines = _wrap_to_width(draw, subtitle, subtitle_font, max_width=500, max_lines=2)
+    lines = _wrap_to_width(draw, subtitle, subtitle_font, max_width=500, max_lines=2, emoji_size=18)
     sy = title_y + 48
     for line in lines:
-        draw.text((40, sy), line, font=subtitle_font, fill=COLORS["muted"])
+        _draw_mixed_text(img, draw, (40, sy), line, subtitle_font, COLORS["muted"], emoji_size=18)
         sy += 26
 
     buf = BytesIO()
@@ -142,7 +221,6 @@ def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] 
 
 
 def generate_product_card(name: str, price: float, final_price: float, discount_percent: Optional[float], image_url: Optional[str], slug_or_id: str) -> bytes:
-    name = _sanitize_for_font(name)
     width, height = 360, 460
     image_h = 220
     img = Image.new("RGB", (width, height), COLORS["surface"])
@@ -174,10 +252,10 @@ def generate_product_card(name: str, price: float, final_price: float, discount_
         draw.text((bx0 + pad, by0 + pad - 2), badge_text, font=badge_font, fill=(255, 255, 255))
 
     name_font = _font("SemiBold", 20)
-    name_lines = _wrap_to_width(draw, name, name_font, max_width=width - 48, max_lines=2)
+    name_lines = _wrap_to_width(draw, name, name_font, max_width=width - 48, max_lines=2, emoji_size=20)
     ny = image_h + 20
     for line in name_lines:
-        draw.text((24, ny), line, font=name_font, fill=COLORS["ink"])
+        _draw_mixed_text(img, draw, (24, ny), line, name_font, COLORS["ink"], emoji_size=20)
         ny += 26
 
     price_y = image_h + 90
