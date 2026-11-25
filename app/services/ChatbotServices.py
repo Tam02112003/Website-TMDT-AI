@@ -261,6 +261,31 @@ async def _run_suggest_build_tool(db: asyncpg.Connection, arguments: dict) -> di
     }
 
 
+def _build_fallback_answer(func_name: Optional[str], tool_result) -> str:
+    """Deterministic, non-LLM answer used when the model refuses to produce a
+    plain-text follow-up after a tool call (see get_chatbot_response)."""
+    if func_name == "add_to_cart":
+        tool_result = tool_result if isinstance(tool_result, dict) else {}
+        if tool_result.get("success"):
+            return f"Đã thêm {tool_result.get('quantity_added', 1)} {tool_result.get('product_name', 'sản phẩm')} vào giỏ hàng của bạn."
+        error = tool_result.get("error")
+        if error == "login_required":
+            return "Bạn cần đăng nhập để thêm sản phẩm vào giỏ hàng."
+        if error == "out_of_stock":
+            return f"Rất tiếc, sản phẩm chỉ còn {tool_result.get('available_quantity', 0)} trong kho."
+        if error == "not_yet_released":
+            return "Sản phẩm này chưa đến ngày mở bán nên chưa thể thêm vào giỏ hàng."
+        if error == "product_not_found":
+            return "Không tìm thấy sản phẩm này."
+        return tool_result.get("message") or "Không thể thêm sản phẩm vào giỏ hàng, vui lòng thử lại."
+    if func_name == "search_products":
+        count = len(tool_result) if isinstance(tool_result, list) else 0
+        return f"Mình tìm thấy {count} sản phẩm phù hợp, bạn xem thông tin ở trên nhé." if count else "Không tìm thấy sản phẩm phù hợp với yêu cầu của bạn."
+    if func_name == "suggest_build":
+        return "Mình đã gợi ý một vài lựa chọn phù hợp ở trên, bạn tham khảo nhé."
+    return "Yêu cầu của bạn đã được xử lý."
+
+
 async def get_chatbot_response(
     question: str,
     db: asyncpg.Connection,
@@ -306,6 +331,7 @@ async def get_chatbot_response(
             tool_calls = message.get("tool_calls")
             if tool_calls:
                 messages.append(message)
+                last_func_name, last_tool_result = None, None
                 for tool_call in tool_calls:
                     func_name = tool_call["function"]["name"]
                     try:
@@ -321,6 +347,7 @@ async def get_chatbot_response(
                         tool_result = await _run_suggest_build_tool(db, arguments)
                     else:
                         tool_result = {"error": f"Unknown function: {func_name}"}
+                    last_func_name, last_tool_result = func_name, tool_result
 
                     messages.append({
                         "role": "tool",
@@ -328,16 +355,36 @@ async def get_chatbot_response(
                         "content": json.dumps(tool_result, ensure_ascii=False),
                     })
 
-                # Second call: let the LLM turn the tool result into a natural-language answer
+                # Second call: let the LLM turn the tool result into a natural-language answer.
+                # Without this explicit nudge, gpt-oss-120b often tries to call another
+                # tool here instead of answering in plain text - since no `tools` are
+                # offered on this call, Groq then rejects the generation outright with
+                # a 400 "Tool choice is none, but model called a tool" error.
+                followup_messages = messages + [{
+                    "role": "system",
+                    "content": "Hành động đã được thực hiện xong dựa trên kết quả tool ở trên. Hãy thông báo kết quả này cho người dùng bằng một câu tiếng Việt tự nhiên, ngắn gọn. Không gọi thêm bất kỳ function/tool nào nữa, chỉ trả lời bằng văn bản thuần.",
+                }]
                 followup_payload = {
                     "model": settings.LOCAL_LLM.MODEL,
-                    "messages": messages,
+                    "messages": followup_messages,
                     "temperature": 0.3,
                     "max_tokens": 1024,
                 }
                 logger.debug("Sending request to LLM (final answer step).")
-                followup_result = await _post_to_llm(client, followup_payload)
-                answer = str(followup_result["choices"][0]["message"]["content"]).strip()
+                try:
+                    followup_result = await _post_to_llm(client, followup_payload)
+                    answer = str(followup_result["choices"][0]["message"]["content"]).strip()
+                except httpx.HTTPStatusError as e:
+                    # The nudge above greatly reduces this, but gpt-oss-120b can still
+                    # sometimes insist on calling another tool instead of answering in
+                    # plain text, which Groq rejects outright (no `tools` were offered
+                    # on this call). Fall back to a deterministic answer instead of
+                    # failing the whole chat turn.
+                    if e.response.status_code == 400 and "tool_use_failed" in e.response.text:
+                        logger.warning(f"Follow-up LLM call tried to call a tool again; using a deterministic fallback answer for '{last_func_name}'.")
+                        answer = _build_fallback_answer(last_func_name, last_tool_result)
+                    else:
+                        raise
             else:
                 answer = str(message.get("content") or "").strip()
 
