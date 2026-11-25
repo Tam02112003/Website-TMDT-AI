@@ -1,5 +1,5 @@
+import numpy as np
 import pandas as pd
-from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict
 import asyncpg
 from crud import order as order_crud
@@ -9,6 +9,17 @@ import os
 import pickle
 from core.utils.enums import ModelPath
 
+
+
+def _cosine_similarity_matrix(matrix: "np.ndarray") -> "np.ndarray":
+    """Pairwise cosine similarity between rows of `matrix`, equivalent to
+    sklearn.metrics.pairwise.cosine_similarity(matrix) for a single input.
+    Reimplemented in plain numpy to avoid bundling scikit-learn/scipy
+    (they pushed the Vercel serverless function over its 500MB size limit)."""
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0] = 1e-10
+    normalized = matrix / norms
+    return normalized @ normalized.T
 
 
 async def train_and_cache_model():
@@ -31,7 +42,7 @@ async def train_and_cache_model():
         user_item_matrix = pd.crosstab(df['user_id'], df['product_id'], df['purchased'], aggfunc='sum').fillna(0)
 
         # Calculate item-item similarity using cosine similarity
-        item_similarity_matrix = cosine_similarity(user_item_matrix.T)
+        item_similarity_matrix = _cosine_similarity_matrix(user_item_matrix.T.to_numpy())
 
         # Create a mapping from product_id to matrix index and vice-versa
         product_ids = user_item_matrix.columns
