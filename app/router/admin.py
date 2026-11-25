@@ -11,7 +11,7 @@ from crud import product as crud_product
 from crud import discount as crud_discount
 from core.pkgs import database
 from crud.user import require_admin
-from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate, ProductResearchRequest, ProductResearchResponse
+from schemas.schemas import UserUpdate, NewsCreate, NewsUpdate, ProductCreate, ProductUpdate, AINewsGenerateRequest, AINewsGenerateResponse, DiscountCreate, DiscountUpdate, ProductResearchRequest, ProductResearchResponse, PromoCampaignPreviewRequest, PromoCampaignPreviewResponse, PromoCampaignSendRequest
 from services import NewsAIService
 from services import ProductResearchService
 from services import BackupService
@@ -46,10 +46,19 @@ async def create_backup_endpoint(db=Depends(database.get_db), admin: dict = Depe
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Backup failed: {e}")
 
-@router.post("/marketing/send-promo", summary="Generate and send a promo email for active discounts (Admin Only)")
-async def send_promo_campaign_endpoint(db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+@router.post("/marketing/promo/preview", response_model=PromoCampaignPreviewResponse, summary="Generate preview images for a promo email (Admin Only)")
+async def preview_promo_campaign_endpoint(payload: PromoCampaignPreviewRequest, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
     try:
-        return await EmailCampaignService.send_promo_campaign(db)
+        return await EmailCampaignService.generate_campaign_preview(db, payload.title, payload.subtitle, payload.product_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to generate preview: {e}")
+
+@router.post("/marketing/promo/send", summary="Send a previewed promo email to all subscribed users (Admin Only)")
+async def send_promo_campaign_endpoint(payload: PromoCampaignSendRequest, db=Depends(database.get_db), admin: dict = Depends(require_admin)):
+    try:
+        return await EmailCampaignService.send_campaign(db, payload.title, payload.hero_url, payload.max_discount, payload.products)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

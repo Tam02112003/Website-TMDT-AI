@@ -359,3 +359,28 @@ class DashboardResponse(BaseModel):
     top_products: List[TopProduct]
     order_status_breakdown: List[OrderStatusCount]
     recent_orders: List[RecentOrder]
+
+class PromoCampaignPreviewRequest(BaseModel):
+    title: str
+    subtitle: str
+    product_ids: List[int]
+
+class PromoCampaignProductItem(BaseModel):
+    id: int
+    name: str
+    slug: Optional[str] = None
+    image_url: str
+
+class PromoCampaignPreviewResponse(BaseModel):
+    hero_url: str
+    title: str
+    subtitle: str
+    max_discount: Optional[int] = None
+    products: List[PromoCampaignProductItem]
+
+class PromoCampaignSendRequest(BaseModel):
+    title: str
+    subtitle: str
+    hero_url: str
+    max_discount: Optional[int] = None
+    products: List[PromoCampaignProductItem]

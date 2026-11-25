@@ -5,15 +5,17 @@ from core.email_sender import send_email_batch
 from crud import product as product_crud
 from crud import user as user_crud
 from router.auth import create_unsubscribe_token
+from schemas.schemas import PromoCampaignPreviewResponse, PromoCampaignProductItem
 from services.CloudinaryService import upload_image_from_bytes
 from services.EmailBannerService import generate_hero_banner, generate_product_card
 
 CAMPAIGN_IMAGE_FOLDER = "email_campaigns"
-MAX_PRODUCTS = 6
+MAX_PRODUCTS = 10
 
 
-def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_url: str, max_discount: int) -> str:
+def _build_campaign_html(hero_url: str, title: str, product_items: list[dict], unsubscribe_url: str, max_discount: int | None) -> str:
     base_url = settings.FRONTEND.URL.rstrip("/")
+    headline = f"🔥 TamStore giảm đến {max_discount}%" if max_discount else f"🎉 {title}"
 
     def product_cell(item: dict) -> str:
         return f"""
@@ -44,7 +46,7 @@ def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_u
                         <tr>
                             <td style="font-family:Arial,sans-serif;text-align:center;padding:0 16px 16px;">
                                 <p style="margin:0 0 6px;font-size:22px;font-weight:bold;color:#ECEAE4;">
-                                    🔥 TamStore giảm đến {max_discount}% cho bàn phím cơ
+                                    {headline}
                                 </p>
                                 <p style="margin:0;font-size:14px;color:#9CA3A8;">
                                     Nếu không thấy hình ảnh bên dưới, hãy
@@ -55,7 +57,7 @@ def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_u
                         <tr>
                             <td>
                                 <a href="{base_url}/products" target="_blank">
-                                    <img src="{hero_url}" width="100%" alt="TamStore - Giảm đến {max_discount}% cho bàn phím cơ" style="display:block;border:0;border-radius:16px;">
+                                    <img src="{hero_url}" width="100%" alt="{headline}" style="display:block;border:0;border-radius:16px;">
                                 </a>
                             </td>
                         </tr>
@@ -83,13 +85,14 @@ def _build_campaign_html(hero_url: str, product_items: list[dict], unsubscribe_u
     """
 
 
-def _build_campaign_text(product_items: list[dict], unsubscribe_url: str, max_discount: int) -> str:
+def _build_campaign_text(title: str, product_items: list[dict], unsubscribe_url: str, max_discount: int | None) -> str:
     base_url = settings.FRONTEND.URL.rstrip("/")
+    headline = f"TamStore giam den {max_discount}%" if max_discount else title
     lines = [
-        f"TamStore giam den {max_discount}% cho ban phim co",
+        headline,
         f"Xem tat ca uu dai: {base_url}/products",
         "",
-        "San pham dang giam gia:",
+        "San pham trong email nay:",
     ]
     for item in product_items:
         lines.append(f"- {item['name']}: {base_url}/products/{item['slug_or_id']}")
@@ -97,18 +100,20 @@ def _build_campaign_text(product_items: list[dict], unsubscribe_url: str, max_di
     return "\n".join(lines)
 
 
-async def send_promo_campaign(db: asyncpg.Connection) -> dict:
-    products = await product_crud.get_discounted_products(db, limit=MAX_PRODUCTS)
+async def generate_campaign_preview(db: asyncpg.Connection, title: str, subtitle: str, product_ids: list[int]) -> PromoCampaignPreviewResponse:
+    if not product_ids:
+        raise ValueError("Chưa chọn sản phẩm nào cho email khuyến mãi.")
+    product_ids = product_ids[:MAX_PRODUCTS]
+
+    products_by_id = await product_crud.get_products_by_ids(db, product_ids)
+    products = [products_by_id[pid] for pid in product_ids if pid in products_by_id]
     if not products:
-        raise ValueError("Không có sản phẩm nào đang giảm giá để gửi email khuyến mãi.")
+        raise ValueError("Không tìm thấy sản phẩm nào trong danh sách đã chọn.")
 
-    max_discount = int(max(p.discount_percent or 0 for p in products))
+    discounts = [p.discount_percent for p in products if p.discount_percent]
+    max_discount = int(max(discounts)) if discounts else None
 
-    hero_bytes = generate_hero_banner(
-        title="SALE CUỐI TUẦN",
-        subtitle="Giảm giá sốc cho hàng loạt bàn phím cơ, switch và phụ kiện chính hãng.",
-        max_discount=max_discount,
-    )
+    hero_bytes = generate_hero_banner(title=title, subtitle=subtitle, max_discount=max_discount)
     hero_url = await upload_image_from_bytes(hero_bytes, folder=CAMPAIGN_IMAGE_FOLDER)
 
     product_items = []
@@ -122,25 +127,31 @@ async def send_promo_campaign(db: asyncpg.Connection) -> dict:
             slug_or_id=p.slug or str(p.id),
         )
         card_url = await upload_image_from_bytes(card_bytes, folder=CAMPAIGN_IMAGE_FOLDER)
-        product_items.append({"image_url": card_url, "name": p.name, "slug_or_id": p.slug or str(p.id)})
+        product_items.append(PromoCampaignProductItem(id=p.id, name=p.name, slug=p.slug, image_url=card_url))
+
+    return PromoCampaignPreviewResponse(
+        hero_url=hero_url, title=title, subtitle=subtitle, max_discount=max_discount, products=product_items
+    )
+
+
+async def send_campaign(db: asyncpg.Connection, title: str, hero_url: str, max_discount: int | None, products: list[PromoCampaignProductItem]) -> dict:
+    if not products:
+        raise ValueError("Không có sản phẩm nào để gửi.")
 
     recipients = await user_crud.get_subscribed_users(db)
     if not recipients:
         return {"recipients": 0, "products_included": len(products), "sent": 0, "failed": 0}
 
-    base_url = settings.FRONTEND.URL.rstrip("/")
+    product_items = [{"image_url": p.image_url, "name": p.name, "slug_or_id": p.slug or str(p.id)} for p in products]
+
     emails = []
     for recipient in recipients:
         token = create_unsubscribe_token(recipient["id"])
         unsubscribe_url = f"{_api_base_url()}/auth/unsubscribe?token={token}"
-        html = _build_campaign_html(hero_url, product_items, unsubscribe_url, max_discount)
-        text = _build_campaign_text(product_items, unsubscribe_url, max_discount)
-        emails.append({
-            "to_email": recipient["email"],
-            "subject": f"🔥 Giảm đến {max_discount}% - Ưu đãi có hạn tại TamStore",
-            "html": html,
-            "text": text,
-        })
+        html = _build_campaign_html(hero_url, title, product_items, unsubscribe_url, max_discount)
+        text = _build_campaign_text(title, product_items, unsubscribe_url, max_discount)
+        subject = f"🔥 Giảm đến {max_discount}% - Ưu đãi có hạn tại TamStore" if max_discount else f"🎉 {title} - TamStore"
+        emails.append({"to_email": recipient["email"], "subject": subject, "html": html, "text": text})
 
     result = send_email_batch(emails)
     logger.info(f"Promo campaign sent: {result['sent']} ok, {result['failed']} failed, {len(recipients)} total recipients.")

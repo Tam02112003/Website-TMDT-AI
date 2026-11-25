@@ -90,7 +90,7 @@ def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
     return mask
 
 
-def generate_hero_banner(title: str, subtitle: str, max_discount: int) -> bytes:
+def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] = None) -> bytes:
     width, height = 800, 280
     img = Image.new("RGB", (width, height), COLORS["bg"])
     draw = ImageDraw.Draw(img, "RGBA")
@@ -106,13 +106,15 @@ def generate_hero_banner(title: str, subtitle: str, max_discount: int) -> bytes:
     brand_font = _font("SemiBold", 22)
     draw.text((40, 32), "TamStore", font=brand_font, fill=COLORS["jade_bright"])
 
-    discount_font = _font("ExtraBold", 110)
-    discount_text = f"-{max_discount}%"
-    draw.text((40, 70), discount_text, font=discount_font, fill=COLORS["camel"])
-
     title_font = _font("ExtraBold", 36)
-    dw, dh = _text_size(draw, discount_text, discount_font)
-    title_y = 70 + dh + 32
+    if max_discount:
+        discount_font = _font("ExtraBold", 110)
+        discount_text = f"-{max_discount}%"
+        draw.text((40, 70), discount_text, font=discount_font, fill=COLORS["camel"])
+        dw, dh = _text_size(draw, discount_text, discount_font)
+        title_y = 70 + dh + 32
+    else:
+        title_y = 110
     draw.text((40, title_y), title, font=title_font, fill=COLORS["ink"])
 
     subtitle_font = _font("Regular", 18)
