@@ -193,7 +193,7 @@ async def _run_search_products_tool(db: asyncpg.Connection, arguments: dict) -> 
 
 
 async def _run_add_to_cart_tool(
-    db: asyncpg.Connection, redis_client: Redis, user: Optional[dict], arguments: dict
+    db: asyncpg.Connection, redis_client: Redis, user: Optional[dict], arguments: dict, last_product_id: Optional[int] = None
 ) -> dict:
     if not user:
         return {"error": "login_required", "message": "Người dùng cần đăng nhập để thêm vào giỏ hàng."}
@@ -201,7 +201,12 @@ async def _run_add_to_cart_tool(
     try:
         product_id = int(arguments.get("product_id"))
     except (TypeError, ValueError):
-        return {"error": "invalid_product_id"}
+        # The model sometimes omits product_id on a follow-up turn like "1 cái nha"
+        # instead of reusing the product it just showed - fall back to whichever
+        # product was last shown to this session (see _get_last_product).
+        if last_product_id is None:
+            return {"error": "invalid_product_id"}
+        product_id = last_product_id
 
     try:
         quantity = max(1, min(int(arguments.get("quantity", 1)), MAX_CART_QUANTITY))
@@ -286,6 +291,27 @@ def _build_fallback_answer(func_name: Optional[str], tool_result) -> str:
     return "Yêu cầu của bạn đã được xử lý."
 
 
+def _last_product_key(history_key: str) -> str:
+    return f"chatbot_last_product:{history_key}"
+
+
+async def _get_last_product(redis_client: Redis, history_key: Optional[str]) -> Optional[dict]:
+    if not history_key:
+        return None
+    cached = await redis_client.get(_last_product_key(history_key))
+    return json.loads(cached) if cached else None
+
+
+async def _set_last_product(redis_client: Redis, history_key: Optional[str], product: dict) -> None:
+    if not history_key:
+        return
+    await redis_client.set(
+        _last_product_key(history_key),
+        json.dumps({"id": product["id"], "name": product["name"]}, ensure_ascii=False),
+        ex=int(ChatbotSessionTime.SESSION_TTL),
+    )
+
+
 async def get_chatbot_response(
     question: str,
     db: asyncpg.Connection,
@@ -314,7 +340,18 @@ async def get_chatbot_response(
 
         conversation_history.append({"role": "user", "content": str(question)})
 
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
+        # Conversation history only keeps plain display text (see safe_history below),
+        # which never includes a product's id - so on a later turn like "1 cái nha"
+        # the model has no id to call add_to_cart with. Re-inject whichever product
+        # was last shown to this session as fresh context on every turn.
+        last_product = await _get_last_product(redis_client, history_key)
+        system_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if last_product:
+            system_messages.append({
+                "role": "system",
+                "content": f"Sản phẩm vừa được nhắc tới trong cuộc trò chuyện: product_id={last_product['id']}, tên \"{last_product['name']}\". Nếu người dùng xác nhận muốn mua/thêm vào giỏ mà không nêu rõ sản phẩm khác, hãy dùng product_id này khi gọi add_to_cart.",
+            })
+        messages = system_messages + conversation_history
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             payload = {
@@ -341,8 +378,13 @@ async def get_chatbot_response(
 
                     if func_name == "search_products":
                         tool_result = await _run_search_products_tool(db, arguments)
+                        if tool_result:
+                            await _set_last_product(redis_client, history_key, tool_result[0])
                     elif func_name == "add_to_cart":
-                        tool_result = await _run_add_to_cart_tool(db, redis_client, user, arguments)
+                        tool_result = await _run_add_to_cart_tool(
+                            db, redis_client, user, arguments,
+                            last_product_id=last_product["id"] if last_product else None,
+                        )
                     elif func_name == "suggest_build":
                         tool_result = await _run_suggest_build_tool(db, arguments)
                     else:
