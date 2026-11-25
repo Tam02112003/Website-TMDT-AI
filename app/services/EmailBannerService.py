@@ -28,6 +28,16 @@ def _font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(os.path.join(FONT_DIR, f"Inter-{name}.ttf"), size)
 
 
+_ALLOWED_EXTRA_CODEPOINTS = {0x2013, 0x2014, 0x2018, 0x2019, 0x201C, 0x201D, 0x2026, 0x00A0}
+
+
+def _sanitize_for_font(text: str) -> str:
+    """Drops characters the Inter font has no glyph for (emoji, symbols, etc.),
+    which Pillow would otherwise draw as empty "tofu" boxes. Browsers mask this
+    by falling back to a system emoji font, but Pillow has no such fallback."""
+    return "".join(ch for ch in text if ord(ch) < 0x2070 or ord(ch) in _ALLOWED_EXTRA_CODEPOINTS)
+
+
 def _text_size(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont) -> tuple[int, int]:
     box = draw.textbbox((0, 0), text, font=font)
     return box[2] - box[0], box[3] - box[1]
@@ -91,6 +101,8 @@ def _rounded_mask(size: tuple[int, int], radius: int) -> Image.Image:
 
 
 def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] = None) -> bytes:
+    title = _sanitize_for_font(title)
+    subtitle = _sanitize_for_font(subtitle)
     width, height = 800, 280
     img = Image.new("RGB", (width, height), COLORS["bg"])
     draw = ImageDraw.Draw(img, "RGBA")
@@ -130,6 +142,7 @@ def generate_hero_banner(title: str, subtitle: str, max_discount: Optional[int] 
 
 
 def generate_product_card(name: str, price: float, final_price: float, discount_percent: Optional[float], image_url: Optional[str], slug_or_id: str) -> bytes:
+    name = _sanitize_for_font(name)
     width, height = 360, 460
     image_h = 220
     img = Image.new("RGB", (width, height), COLORS["surface"])
